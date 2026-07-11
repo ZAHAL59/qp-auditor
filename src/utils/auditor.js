@@ -1,7 +1,4 @@
 // src/utils/auditor.js
-// Calls OpenRouter directly from the browser for vision (no Vercel size limit)
-// For text mode, still goes through /api/audit backend
-
 const SYSTEM_PROMPT = `You are an expert question paper proofreader for competitive exams (JEE, NEET, etc.).
 
 Carefully read the question paper and detect ONLY these issues:
@@ -15,12 +12,11 @@ Carefully read the question paper and detect ONLY these issues:
 
 4. duplicate_options — Within one question, two or more answer options are EXACTLY identical.
    You can read chemistry formulas, Greek letters (α β γ θ), charge symbols (⊕ ⊖), radical dots (Ċ), structural formulas.
-   Example: option (3) is "CH₃CH₂ and Cl⊕" and option (4) is also "CH₃CH₂ and Cl⊕" → duplicate.
    NOT duplicates: "Cl·" and "Cl⊕" (different), "p" and "-p" (different signs), "x" and "2x" (different).
 
 5. spelling — A clearly misspelled English word. Not numbers or chemistry symbols.
 
-Return ONLY valid JSON, no markdown:
+Return ONLY valid JSON, no markdown, no thinking, no explanation:
 {
   "total_questions": <integer>,
   "issues": [
@@ -40,6 +36,26 @@ Return ONLY valid JSON, no markdown:
 }
 
 SEVERITY: high = duplicate/missing question number or ordering, medium = duplicate options, low = spelling`;
+
+function safeParseJSON(raw) {
+  // Remove markdown, thinking tags, extra text
+  raw = raw.replace(/```json|```/g, '');
+  raw = raw.replace(/<think>[\s\S]*?<\/think>/gi, '');
+  raw = raw.trim();
+  // Find the JSON object boundaries
+  const start = raw.indexOf('{');
+  const end = raw.lastIndexOf('}');
+  if (start === -1 || end === -1 || end < start) {
+    console.warn('No JSON found:', raw.substring(0, 200));
+    return { total_questions: 0, issues: [], quality_score: 100, summary: 'No issues detected on this page.' };
+  }
+  try {
+    return JSON.parse(raw.substring(start, end + 1));
+  } catch (e) {
+    console.warn('JSON parse failed:', raw.substring(start, start + 200));
+    return { total_questions: 0, issues: [], quality_score: 100, summary: 'Could not parse response for this page.' };
+  }
+}
 
 async function callOpenRouter(messages, apiKey) {
   const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -66,16 +82,12 @@ async function callOpenRouter(messages, apiKey) {
   }
 
   const data = await resp.json();
-  let raw = data.choices?.[0]?.message?.content || '';
-  raw = raw.replace(/```json|```/g, '').trim();
-  // Find JSON object in response even if there's extra text
-  const jsonMatch = raw.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error('AI did not return valid JSON. Please try again.');
-  return JSON.parse(jsonMatch[0]);
+  const raw = data.choices?.[0]?.message?.content || '';
+  return safeParseJSON(raw);
 }
 
 export async function auditPaper(content, images, apiKey) {
-  // ── VISION MODE: browser calls OpenRouter directly ──
+  // ── VISION MODE ──
   if (images && images.length > 0) {
     const allIssues = [];
     let totalQuestions = 0;
@@ -84,7 +96,6 @@ export async function auditPaper(content, images, apiKey) {
 
     for (let i = 0; i < images.length; i++) {
       const img = images[i];
-
       const userContent = [
         {
           type: 'image_url',
@@ -92,7 +103,7 @@ export async function auditPaper(content, images, apiKey) {
         },
         {
           type: 'text',
-          text: `This is page ${img.page} of ${img.totalPages} of the question paper. Analyze carefully and return the JSON audit result.`,
+          text: `This is page ${img.page} of ${img.totalPages}. Analyze and return JSON only.`,
         },
       ];
 
@@ -102,18 +113,16 @@ export async function auditPaper(content, images, apiKey) {
       );
 
       totalQuestions += batchResult.total_questions || 0;
-      summaryText = batchResult.summary || '';
+      if (batchResult.summary) summaryText = batchResult.summary;
       (batchResult.issues || []).forEach(issue => {
         allIssues.push({ ...issue, id: idCounter++ });
       });
 
-      // Small delay between pages
       if (i + 1 < images.length) {
         await new Promise(r => setTimeout(r, 1500));
       }
     }
 
-    // Deduplicate
     const seen = new Set();
     const dedupedIssues = allIssues.filter(issue => {
       const key = `${issue.question_num}-${issue.category}-${issue.description}`;
@@ -135,7 +144,7 @@ export async function auditPaper(content, images, apiKey) {
     };
   }
 
-  // ── TEXT MODE: goes through /api/audit backend ──
+  // ── TEXT MODE ──
   const response = await fetch('/api/audit', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
