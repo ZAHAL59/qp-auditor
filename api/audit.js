@@ -62,7 +62,7 @@ SEVERITY: high = duplicate/missing question number or ordering, medium = duplica
         'X-Title': 'QP Auditor',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.0-flash-exp:free',
+        model: 'google/gemini-flash-1.5-8b:free',
         max_tokens: 4096,
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
