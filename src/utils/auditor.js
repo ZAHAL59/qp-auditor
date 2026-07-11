@@ -94,8 +94,8 @@ export async function auditPaper(content, images, apiKey) {
     let idCounter = 1;
     let summaryText = '';
 
-    for (let i = 0; i < images.length; i++) {
-      const img = images[i];
+    // Process all pages in parallel for speed
+    const pageResults = await Promise.all(images.map(img => {
       const userContent = [
         {
           type: 'image_url',
@@ -106,22 +106,16 @@ export async function auditPaper(content, images, apiKey) {
           text: `This is page ${img.page} of ${img.totalPages}. Analyze and return JSON only.`,
         },
       ];
+      return callOpenRouter([{ role: 'user', content: userContent }], apiKey);
+    }));
 
-      const batchResult = await callOpenRouter(
-        [{ role: 'user', content: userContent }],
-        apiKey
-      );
-
+    pageResults.forEach(batchResult => {
       totalQuestions += batchResult.total_questions || 0;
       if (batchResult.summary) summaryText = batchResult.summary;
       (batchResult.issues || []).forEach(issue => {
         allIssues.push({ ...issue, id: idCounter++ });
       });
-
-      if (i + 1 < images.length) {
-        await new Promise(r => setTimeout(r, 1500));
-      }
-    }
+    });
 
     const seen = new Set();
     const dedupedIssues = allIssues.filter(issue => {
