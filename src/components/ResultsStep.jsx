@@ -5,11 +5,12 @@ import IssueCard from './IssueCard';
 import { exportTXT, exportCSV, downloadFile } from '../utils/exportReport';
 
 const CATS = [
-  { key: 'all',                      label: 'All' },
+  { key: 'all', label: 'All' },
   { key: 'duplicate_question_number', label: 'Duplicate Q. No.' },
-  { key: 'duplicate_options',         label: 'Duplicate Options' },
-  { key: 'question_ordering',         label: 'Ordering' },
-  { key: 'spelling',                  label: 'Spelling' },
+  { key: 'missing_question_number', label: 'Missing Q. No.' },
+  { key: 'duplicate_options', label: 'Duplicate Options' },
+  { key: 'question_ordering', label: 'Ordering' },
+  { key: 'spelling', label: 'Spelling' },
 ];
 
 export default function ResultsStep({ result, issues, setIssues, onReset }) {
@@ -20,19 +21,19 @@ export default function ResultsStep({ result, issues, setIssues, onReset }) {
   };
 
   const acceptAll = () => setIssues(issues.map(i => ({ ...i, _state: 'accepted' })));
-  const clearAll  = () => setIssues(issues.map(i => ({ ...i, _state: 'pending' })));
+  const clearAll = () => setIssues(issues.map(i => ({ ...i, _state: 'pending' })));
 
   const visible = issues.filter(i => catFilter === 'all' || i.category === catFilter);
 
   const accepted = issues.filter(i => i._state === 'accepted').length;
   const rejected = issues.filter(i => i._state === 'rejected').length;
-  const pending  = issues.filter(i => !i._state || i._state === 'pending').length;
+  const pending = issues.filter(i => !i._state || i._state === 'pending').length;
 
   const score = result.quality_score || 0;
   const scoreColor = score >= 80 ? '#16a34a' : score >= 60 ? '#d97706' : '#dc2626';
-  const scoreBg    = score >= 80 ? '#dcfce7' : score >= 60 ? '#fef3c7' : '#fee2e2';
+  const scoreBg = score >= 80 ? '#dcfce7' : score >= 60 ? '#fef3c7' : '#fee2e2';
 
-  const counts = { duplicate_question_number: 0, duplicate_options: 0, question_ordering: 0, spelling: 0 };
+  const counts = { duplicate_question_number: 0, missing_question_number: 0, duplicate_options: 0, question_ordering: 0, spelling: 0 };
   issues.forEach(i => { if (counts[i.category] !== undefined) counts[i.category]++; });
 
   return (

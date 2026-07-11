@@ -22,9 +22,10 @@ module.exports = async function handler(req, res) {
 
 CHECK ONLY:
 1. duplicate_question_number — same question number appears more than once (e.g. Q5 used twice)
-2. duplicate_options — within a single question, two or more options have identical text
-3. question_ordering — question numbers are not in ascending order (e.g. 1, 2, 4, 3, 5)
-4. spelling — a word is clearly misspelled (e.g. "folowing" instead of "following")
+2. missing_question_number — a question number is skipped in the sequence (e.g. sequence goes 9, 11 — number 10 is missing)
+3. duplicate_options — within a single question, two or more options have identical text
+4. question_ordering — question numbers are not in ascending order (e.g. 1, 2, 4, 3, 5)
+5. spelling — a word is clearly misspelled (e.g. "folowing" instead of "following")
 
 IGNORE everything else — do not flag grammar, punctuation, answer correctness, meaning, or anything else.
 
@@ -35,7 +36,7 @@ Return ONLY a valid JSON object, no markdown, no explanation:
     {
       "id": <unique integer starting from 1>,
       "question_num": "<e.g. Q3>",
-      "category": "<duplicate_question_number | duplicate_options | question_ordering | spelling>",
+      "category": "<duplicate_question_number | missing_question_number | duplicate_options | question_ordering | spelling>",
       "severity": "<high | medium | low>",
       "description": "<short factual description>",
       "suggestion": "<exact fix>",
@@ -47,7 +48,7 @@ Return ONLY a valid JSON object, no markdown, no explanation:
   "summary": "<one sentence summary>"
 }
 
-SEVERITY: high = duplicate question number or ordering, medium = duplicate options, low = spelling
+SEVERITY: high = duplicate question number, missing question number, or ordering issue; medium = duplicate options; low = spelling
 
 QUESTION PAPER:
 ${content.substring(0, 8000)}`;

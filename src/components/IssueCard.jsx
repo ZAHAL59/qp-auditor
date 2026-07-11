@@ -3,16 +3,17 @@ import React, { useState } from 'react';
 import { CheckCircle2, XCircle, ChevronDown, ChevronUp, Hash, Copy, ArrowDownUp, Spline } from 'lucide-react';
 
 const CAT_META = {
-  duplicate_question_number: { label: 'Duplicate Q. Number', icon: Hash,       color: '#dc2626', bg: '#fee2e2' },
-  duplicate_options:         { label: 'Duplicate Options',   icon: Copy,       color: '#d97706', bg: '#fef3c7' },
-  question_ordering:         { label: 'Question Ordering',   icon: ArrowDownUp,color: '#4f6ef7', bg: '#eef1fe' },
-  spelling:                  { label: 'Spelling Mistake',    icon: Spline,     color: '#7c3aed', bg: '#ede9fe' },
+  duplicate_question_number: { label: 'Duplicate Q. Number', icon: Hash, color: '#dc2626', bg: '#fee2e2' },
+  missing_question_number: { label: 'Missing Q. Number', icon: Hash, color: '#dc2626', bg: '#fee2e2' },
+  duplicate_options: { label: 'Duplicate Options', icon: Copy, color: '#d97706', bg: '#fef3c7' },
+  question_ordering: { label: 'Question Ordering', icon: ArrowDownUp, color: '#4f6ef7', bg: '#eef1fe' },
+  spelling: { label: 'Spelling Mistake', icon: Spline, color: '#7c3aed', bg: '#ede9fe' },
 };
 
 const SEV_STYLES = {
-  high:   { label: 'High',   color: '#b91c1c', bg: '#fee2e2' },
+  high: { label: 'High', color: '#b91c1c', bg: '#fee2e2' },
   medium: { label: 'Medium', color: '#b45309', bg: '#fef3c7' },
-  low:    { label: 'Low',    color: '#15803d', bg: '#dcfce7' },
+  low: { label: 'Low', color: '#15803d', bg: '#dcfce7' },
 };
 
 export default function IssueCard({ issue, onStateChange }) {
