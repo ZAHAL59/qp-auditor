@@ -2,7 +2,7 @@
 // Vercel serverless function — proxies requests to Groq
 // Your GROQ_API_KEY stays here on the server, never exposed to users
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   // Only allow POST
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
