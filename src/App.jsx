@@ -9,6 +9,9 @@ import { auditPaper } from './utils/auditor';
 
 const STEP = { UPLOAD: 'upload', LOADING: 'loading', RESULTS: 'results' };
 
+// OpenRouter key exposed to frontend via REACT_APP_ prefix
+const OPENROUTER_KEY = process.env.REACT_APP_OPENROUTER_API_KEY;
+
 export default function App() {
   const [step, setStep] = useState(STEP.UPLOAD);
   const [result, setResult] = useState(null);
@@ -26,22 +29,19 @@ export default function App() {
 
       if (file) {
         const ext = file.name.split('.').pop().toLowerCase();
-
         if (ext === 'pdf') {
-          // For PDFs: render as images for vision AI
-          setLoadMsg('Rendering PDF pages as images…');
-          images = await pdfToImages(file, 30); // up to 30 pages
-          setLoadMsg(`Extracted ${images.length} pages — sending to AI…`);
-          content = ''; // images will be used instead
+          setLoadMsg('Rendering PDF pages…');
+          images = await pdfToImages(file, 30);
+          setLoadMsg(`${images.length} pages extracted — sending to AI…`);
+          content = '';
         } else {
-          // For DOCX/XLSX/TXT: extract text as before
           setLoadMsg('Extracting text from file…');
           content = await parseFile(file);
         }
       }
 
       setLoadMsg('AI is reading your question paper…');
-      const auditResult = await auditPaper(content, images);
+      const auditResult = await auditPaper(content, images, OPENROUTER_KEY);
 
       const numberedIssues = (auditResult.issues || []).map((issue, i) => ({
         ...issue,
@@ -103,7 +103,7 @@ export default function App() {
         <ResultsStep result={result} issues={issues} setIssues={setIssues} onReset={handleReset} />
       )}
 
-      <footer style={styles.footer}>QP Auditor · Powered by Gemini Vision AI</footer>
+      <footer style={styles.footer}>QP Auditor · Powered by Vision AI</footer>
     </div>
   );
 }
