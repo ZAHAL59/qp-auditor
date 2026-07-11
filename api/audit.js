@@ -62,7 +62,7 @@ SEVERITY: high = duplicate/missing question number or ordering, medium = duplica
         'X-Title': 'QP Auditor',
       },
       body: JSON.stringify({
-        model: 'nvidia/nemotron-3-nano-omni:free',
+        model: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
         max_tokens: 4096,
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
