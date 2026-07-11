@@ -52,7 +52,7 @@ async function callOpenRouter(messages, apiKey) {
     },
     body: JSON.stringify({
       model: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
-      max_tokens: 4096,
+      max_tokens: 8000,
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
         ...messages,
@@ -68,7 +68,10 @@ async function callOpenRouter(messages, apiKey) {
   const data = await resp.json();
   let raw = data.choices?.[0]?.message?.content || '';
   raw = raw.replace(/```json|```/g, '').trim();
-  return JSON.parse(raw);
+  // Find JSON object in response even if there's extra text
+  const jsonMatch = raw.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('AI did not return valid JSON. Please try again.');
+  return JSON.parse(jsonMatch[0]);
 }
 
 export async function auditPaper(content, images, apiKey) {
@@ -120,9 +123,9 @@ export async function auditPaper(content, images, apiKey) {
     }).map((issue, i) => ({ ...issue, id: i + 1 }));
 
     const highCount = dedupedIssues.filter(i => i.severity === 'high').length;
-    const medCount  = dedupedIssues.filter(i => i.severity === 'medium').length;
-    const lowCount  = dedupedIssues.filter(i => i.severity === 'low').length;
-    const quality   = Math.max(0, 100 - (highCount * 10) - (medCount * 5) - (lowCount * 2));
+    const medCount = dedupedIssues.filter(i => i.severity === 'medium').length;
+    const lowCount = dedupedIssues.filter(i => i.severity === 'low').length;
+    const quality = Math.max(0, 100 - (highCount * 10) - (medCount * 5) - (lowCount * 2));
 
     return {
       total_questions: totalQuestions,
