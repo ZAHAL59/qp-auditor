@@ -18,7 +18,7 @@ module.exports = async function handler(req, res) {
   if (!GROQ_API_KEY) return res.status(500).json({ error: 'Server not configured.' });
 
   // ── 1. CODE-BASED checks ──
-  const qnumRegex = /(?:^|\n)[ \t]*(\d+)\./g;
+  const qnumRegex = /(?:^|\n)\s*(\d+)\s*\./g;
   const allFound = [];
   let match;
   while ((match = qnumRegex.exec(content)) !== null) {
@@ -96,12 +96,16 @@ module.exports = async function handler(req, res) {
   // ── 2. AI: spelling and duplicate options only ──
   const prompt = `You are a question paper proofreader. Check ONLY these 2 things:
 
-1. duplicate_options — within a single question, two or more options have identical text or identical values.
+1. duplicate_options — within a single question, two or more options have EXACTLY identical text or values.
 2. spelling — a word is clearly misspelled.
 
 STRICT RULES:
-- Repeated option values = duplicate_options, NEVER spelling.
-- Only flag actual misspelled words, NOT numbers or math.
+- Only flag duplicate_options when options are 100% identical character-for-character. Example: both say "7860" exactly.
+- "p" and "-p" are NOT duplicates — they have different signs.
+- "x" and "2x" are NOT duplicates — they are different values.
+- "sin θ" and "-sin θ" are NOT duplicates.
+- Only flag when options are truly identical, like "7860" and "7860".
+- Only flag spelling for actual wrong letters in words, NOT numbers or math symbols.
 - Do NOT check question numbering or ordering.
 
 Return ONLY valid JSON, no markdown:
