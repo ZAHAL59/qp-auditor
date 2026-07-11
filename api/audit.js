@@ -18,7 +18,7 @@ module.exports = async function handler(req, res) {
   if (!GROQ_API_KEY) return res.status(500).json({ error: 'Server not configured.' });
 
   // ── 1. CODE-BASED checks ──
-  const qnumRegex = /(?:^|\n)\s*(\d+)\s*\./g;
+  const qnumRegex = /(?:^|\n|(?<=\s{2}))(\d{1,3})\s*\./g;
   const allFound = [];
   let match;
   while ((match = qnumRegex.exec(content)) !== null) {
