@@ -30,6 +30,7 @@ module.exports = async function handler(req, res) {
   });
 
   const structuralIssues = [];
+  console.log("DEBUG qnums:", JSON.stringify(allFound), "freq:", JSON.stringify(freq));
   let id = 1;
 
   if (questionNumsInOrder.length > 0) {
