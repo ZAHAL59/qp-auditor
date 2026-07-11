@@ -8,47 +8,49 @@ module.exports = async function handler(req, res) {
   const GROQ_API_KEY = process.env.GROQ_API_KEY;
   if (!GROQ_API_KEY) return res.status(500).json({ error: 'Server not configured.' });
 
-  // ── 1. CODE-BASED: Extract question numbers (handles 1. 1) Q1. Q1) 1: formats) ──
-  const qnumRegex = /(?:^|\n)\s*(?:Q\.?\s*)?(\d+)\s*[.):\]]/g;
-  const foundNums = [];
+  // ── 1. CODE-BASED: Extract question numbers ──
+  // Matches lines like "8." "9." "11." — question number followed by a dot
+  // Ignores option formats like (1) (2) (3) (4) or A. B. C. D.
+  const qnumRegex = /(?:^|\n)[ \t]*(\d+)\./g;
+  const allFound = []; // in order of appearance
   let match;
   while ((match = qnumRegex.exec(content)) !== null) {
-    const n = parseInt(match[1], 10);
-    // Filter out option numbers like (1) (2) (3) (4) — only keep likely question numbers
-    // Options are usually single digit 1-4, questions are usually higher or appear at line start
-    foundNums.push(n);
+    allFound.push(parseInt(match[1], 10));
   }
 
-  // Remove option numbers: if a number appears more than 3x it's likely an option label not a Q number
+  // Count frequency — question numbers appear once, option numbers (1.2.3.4.) appear many times
   const freq = {};
-  foundNums.forEach(n => { freq[n] = (freq[n] || 0) + 1; });
-  // Question numbers: appear exactly once (or twice if duplicated), options appear many times
-  const maxFreq = Math.max(...Object.values(freq));
-  const threshold = Math.min(4, Math.floor(maxFreq / 2));
-  const questionNums = foundNums.filter(n => freq[n] <= Math.max(3, threshold));
-  // Get unique question numbers in order of appearance
-  const seen2 = new Set();
-  const orderedQNums = [];
-  foundNums.forEach(n => {
-    if (freq[n] <= Math.max(3, threshold) && !seen2.has(n)) {
-      seen2.add(n);
-      orderedQNums.push(n);
+  allFound.forEach(n => { freq[n] = (freq[n] || 0) + 1; });
+
+  // Keep only numbers that appear 1-2 times (real question numbers)
+  // Option numbers like 1,2,3,4 appear once per question = many times total
+  const maxOptionCount = Math.max(...Object.values(freq));
+  // If 1,2,3,4 each appear N times, anything appearing <= 2 times is a question number
+  const questionNumsInOrder = []; // order of first appearance
+  const seenQ = new Set();
+  allFound.forEach(n => {
+    if (freq[n] <= 2 && !seenQ.has(n)) {
+      seenQ.add(n);
+      questionNumsInOrder.push(n);
     }
+  });
+
+  // Also get count map for duplicates
+  const qFreq = {};
+  allFound.forEach(n => {
+    if (freq[n] <= 2) qFreq[n] = (qFreq[n] || 0) + 1;
   });
 
   const structuralIssues = [];
   let id = 1;
 
-  if (orderedQNums.length > 0) {
-    const seenCount = {};
-    questionNums.forEach(n => { seenCount[n] = (seenCount[n] || 0) + 1; });
+  if (questionNumsInOrder.length > 0) {
+    const uniqueSorted = [...new Set(questionNumsInOrder)].sort((a, b) => a - b);
+    const min = uniqueSorted[0];
+    const max = uniqueSorted[uniqueSorted.length - 1];
 
-    const sorted = [...new Set(questionNums)].sort((a, b) => a - b);
-    const min = sorted[0];
-    const max = sorted[sorted.length - 1];
-
-    // Duplicate question numbers
-    Object.entries(seenCount).forEach(([num, count]) => {
+    // 1. Duplicate question numbers
+    Object.entries(qFreq).forEach(([num, count]) => {
       if (count > 1) {
         structuralIssues.push({
           id: id++,
@@ -56,41 +58,41 @@ module.exports = async function handler(req, res) {
           category: 'duplicate_question_number',
           severity: 'high',
           description: `Question number ${num} appears ${count} times in the paper.`,
-          suggestion: `Remove the duplicate. Keep only one question numbered ${num}.`,
+          suggestion: `Remove the duplicate. Only one question should be numbered ${num}.`,
           confidence: 1.0,
           original_text: `Q${num} appears ${count} times`,
         });
       }
     });
 
-    // Missing question numbers
+    // 2. Missing question numbers (gaps)
     for (let i = min; i <= max; i++) {
-      if (!seenCount[i]) {
+      if (!qFreq[i]) {
         structuralIssues.push({
           id: id++,
           question_num: `Q${i}`,
           category: 'missing_question_number',
           severity: 'high',
-          description: `Question number ${i} is missing — sequence jumps over it.`,
-          suggestion: `Add question ${i} or renumber to make the sequence continuous.`,
+          description: `Question number ${i} is missing — sequence jumps from ${i - 1} to ${i + 1}.`,
+          suggestion: `Add the missing question ${i} or renumber to make the sequence continuous.`,
           confidence: 1.0,
           original_text: `Sequence skips number ${i}`,
         });
       }
     }
 
-    // Out of order
-    for (let i = 1; i < orderedQNums.length; i++) {
-      if (orderedQNums[i] < orderedQNums[i - 1]) {
+    // 3. Out of order
+    for (let i = 1; i < questionNumsInOrder.length; i++) {
+      if (questionNumsInOrder[i] < questionNumsInOrder[i - 1]) {
         structuralIssues.push({
           id: id++,
-          question_num: `Q${orderedQNums[i]}`,
+          question_num: `Q${questionNumsInOrder[i]}`,
           category: 'question_ordering',
           severity: 'high',
-          description: `Question ${orderedQNums[i]} appears after question ${orderedQNums[i - 1]} — out of order.`,
-          suggestion: `Move question ${orderedQNums[i]} to its correct position in the sequence.`,
+          description: `Question ${questionNumsInOrder[i]} appears after question ${questionNumsInOrder[i - 1]} — out of order.`,
+          suggestion: `Move question ${questionNumsInOrder[i]} before question ${questionNumsInOrder[i - 1]}.`,
           confidence: 1.0,
-          original_text: `...${orderedQNums[i - 1]}, ${orderedQNums[i]}...`,
+          original_text: `...${questionNumsInOrder[i - 1]}, ${questionNumsInOrder[i]}...`,
         });
       }
     }
@@ -99,13 +101,14 @@ module.exports = async function handler(req, res) {
   // ── 2. AI: Only spelling and duplicate options ──
   const prompt = `You are a question paper proofreader. Check ONLY these 2 things:
 
-1. duplicate_options — within a single question, two or more options have IDENTICAL or very similar text. For example: option (3) is "7860" and option (4) is also "7860". Flag this as duplicate_options NOT as spelling.
-2. spelling — a word is clearly misspelled. Only flag actual misspelled words, NOT numbers or repeated values.
+1. duplicate_options — within a single question, two or more options have identical text or identical values. Example: option (3) is "7860" and option (4) is also "7860".
+2. spelling — a word is clearly misspelled. Example: "folowing" instead of "following".
 
-IMPORTANT:
-- If two options have the same value (e.g. both say 7860, or both say "Paris"), that is duplicate_options — NOT spelling.
-- Only flag spelling if a word has wrong letters (e.g. "folowing", "Whcih", "teh").
-- Do NOT flag numbers, math expressions, or repeated answer choices as spelling errors.
+STRICT RULES:
+- Repeated option values (numbers or text) = duplicate_options, NEVER spelling.
+- Only flag spelling for actual wrong letters in words.
+- Do NOT flag numbers, formulas, or math as spelling errors.
+- Do NOT check question numbering or ordering — that is already handled separately.
 
 Return ONLY valid JSON, no markdown:
 {
@@ -116,7 +119,7 @@ Return ONLY valid JSON, no markdown:
       "question_num": "<e.g. Q3>",
       "category": "<duplicate_options | spelling>",
       "severity": "<medium | low>",
-      "description": "<short description — for duplicate options say which options are identical and their values>",
+      "description": "<for duplicate_options: state which options are identical and their value. For spelling: state the misspelled word>",
       "suggestion": "<exact fix>",
       "confidence": <float 0.0-1.0>,
       "original_text": "<the exact problematic text, max 80 chars>"
@@ -143,7 +146,7 @@ ${content.substring(0, 8000)}`;
         temperature: 0.1,
         max_tokens: 4096,
         messages: [
-          { role: 'system', content: 'You are a strict question paper proofreader. Respond with valid JSON only. Never flag numbers or repeated answer choices as spelling errors.' },
+          { role: 'system', content: 'You are a strict question paper proofreader. Respond with valid JSON only. Never flag numbers as spelling errors.' },
           { role: 'user', content: prompt },
         ],
       }),
@@ -167,7 +170,7 @@ ${content.substring(0, 8000)}`;
     const quality = Math.max(0, 100 - (highCount * 10) - (medCount * 5) - (lowCount * 2));
 
     return res.status(200).json({
-      total_questions: aiResult.total_questions || orderedQNums.length,
+      total_questions: aiResult.total_questions || questionNumsInOrder.length,
       issues: allIssues,
       quality_score: quality,
       summary: aiResult.summary || `Found ${allIssues.length} issue(s).`,
