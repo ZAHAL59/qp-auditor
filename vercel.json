@@ -1,7 +1,10 @@
 {
   "version": 2,
-  "buildCommand": "react-scripts build",
-  "outputDirectory": "build",
+  "functions": {
+    "api/audit.js": {
+      "memory": 512
+    }
+  },
   "rewrites": [
     {
       "source": "/api/(.*)",

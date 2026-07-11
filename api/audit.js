@@ -2,15 +2,22 @@
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { content } = req.body;
+  // Vercel sometimes needs manual body parsing
+  let body = req.body;
+  if (!body || typeof body === 'string') {
+    try { body = JSON.parse(body || '{}'); } catch { body = {}; }
+  }
+
+  const content = body.content || '';
+  console.log('DEBUG content length:', content.length);
+  console.log('DEBUG content preview:', content.substring(0, 100));
+
   if (!content) return res.status(400).json({ error: 'No content provided' });
 
   const GROQ_API_KEY = process.env.GROQ_API_KEY;
   if (!GROQ_API_KEY) return res.status(500).json({ error: 'Server not configured.' });
 
   // ── 1. CODE-BASED checks ──
-  // Match lines starting with number+dot e.g. "5." "11."
-  // Options use (1) (2) format so they won't be matched
   const qnumRegex = /(?:^|\n)[ \t]*(\d+)\./g;
   const allFound = [];
   let match;
@@ -18,19 +25,18 @@ module.exports = async function handler(req, res) {
     allFound.push(parseInt(match[1], 10));
   }
 
-  // Frequency count
   const freq = {};
   allFound.forEach(n => { freq[n] = (freq[n] || 0) + 1; });
 
-  // Order of first appearance (for ordering check)
-  const questionNumsInOrder = [];
+  console.log('DEBUG qnums:', JSON.stringify(allFound), 'freq:', JSON.stringify(freq));
+
   const seen = new Set();
+  const questionNumsInOrder = [];
   allFound.forEach(n => {
     if (!seen.has(n)) { seen.add(n); questionNumsInOrder.push(n); }
   });
 
   const structuralIssues = [];
-  console.log("DEBUG qnums:", JSON.stringify(allFound), "freq:", JSON.stringify(freq));
   let id = 1;
 
   if (questionNumsInOrder.length > 0) {
@@ -91,9 +97,7 @@ module.exports = async function handler(req, res) {
   const prompt = `You are a question paper proofreader. Check ONLY these 2 things:
 
 1. duplicate_options — within a single question, two or more options have identical text or identical values.
-   Example: option (3) is "7860" and option (4) is also "7860" → flag as duplicate_options.
 2. spelling — a word is clearly misspelled.
-   Example: "folowing" instead of "following".
 
 STRICT RULES:
 - Repeated option values = duplicate_options, NEVER spelling.
@@ -109,7 +113,7 @@ Return ONLY valid JSON, no markdown:
       "question_num": "<e.g. Q11>",
       "category": "<duplicate_options | spelling>",
       "severity": "<medium | low>",
-      "description": "<for duplicate_options: which options are identical and what value. For spelling: the misspelled word and correction>",
+      "description": "<description>",
       "suggestion": "<exact fix>",
       "confidence": <float 0.0-1.0>,
       "original_text": "<exact problematic text, max 80 chars>"
@@ -118,8 +122,6 @@ Return ONLY valid JSON, no markdown:
   "quality_score": <integer 0-100>,
   "summary": "<one sentence>"
 }
-
-SEVERITY: medium = duplicate_options, low = spelling
 
 QUESTION PAPER:
 ${content.substring(0, 8000)}`;
@@ -136,7 +138,7 @@ ${content.substring(0, 8000)}`;
         temperature: 0.1,
         max_tokens: 4096,
         messages: [
-          { role: 'system', content: 'You are a strict question paper proofreader. Respond with valid JSON only. Never flag numbers as spelling errors.' },
+          { role: 'system', content: 'You are a strict question paper proofreader. Respond with valid JSON only.' },
           { role: 'user', content: prompt },
         ],
       }),
@@ -152,7 +154,6 @@ ${content.substring(0, 8000)}`;
     raw = raw.replace(/```json|```/g, '').trim();
     const aiResult = JSON.parse(raw);
 
-    // ── 3. Merge ──
     const allIssues = [...structuralIssues, ...(aiResult.issues || [])];
     const highCount = allIssues.filter(i => i.severity === 'high').length;
     const medCount = allIssues.filter(i => i.severity === 'medium').length;
