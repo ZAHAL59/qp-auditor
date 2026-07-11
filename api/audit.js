@@ -8,10 +8,15 @@ module.exports = async function handler(req, res) {
   }
 
   const { content, images } = body;
+  console.log('DEBUG body keys:', Object.keys(body));
+  console.log('DEBUG images type:', typeof images, Array.isArray(images), images ? images.length : 0);
+  console.log('DEBUG content type:', typeof content, (content || '').length);
+
   const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+  console.log('DEBUG has key:', !!GEMINI_API_KEY);
   if (!GEMINI_API_KEY) return res.status(500).json({ error: 'Server not configured. Set GEMINI_API_KEY.' });
 
-  console.log('DEBUG mode:', images ? `vision (${images.length} pages)` : 'text', 'content len:', (content||'').length);
+  console.log('DEBUG mode:', images ? `vision (${images.length} pages)` : 'text', 'content len:', (content || '').length);
 
   const SYSTEM_PROMPT = `You are an expert question paper proofreader for competitive exams (JEE, NEET, etc.).
 
@@ -66,7 +71,7 @@ SEVERITY: high = duplicate/missing question number or ordering, medium = duplica
       for (let i = 0; i < images.length; i += BATCH) {
         const batch = images.slice(i, i + BATCH);
         const parts = [
-          { text: SYSTEM_PROMPT + `\n\nThis is pages ${i+1}–${Math.min(i+BATCH, images.length)} of ${images[images.length-1].totalPages}. Analyze carefully.` },
+          { text: SYSTEM_PROMPT + `\n\nThis is pages ${i + 1}–${Math.min(i + BATCH, images.length)} of ${images[images.length - 1].totalPages}. Analyze carefully.` },
           ...batch.map(img => ({
             inline_data: { mime_type: 'image/jpeg', data: img.base64 }
           })),
@@ -90,7 +95,7 @@ SEVERITY: high = duplicate/missing question number or ordering, medium = duplica
         const data = await resp.json();
         let raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
         raw = raw.replace(/```json|```/g, '').trim();
-        console.log(`DEBUG batch ${i/BATCH+1} raw:`, raw.substring(0, 150));
+        console.log(`DEBUG batch ${i / BATCH + 1} raw:`, raw.substring(0, 150));
 
         const batchResult = JSON.parse(raw);
         totalQuestions += batchResult.total_questions || 0;
@@ -110,9 +115,9 @@ SEVERITY: high = duplicate/missing question number or ordering, medium = duplica
       });
 
       const highCount = dedupedIssues.filter(i => i.severity === 'high').length;
-      const medCount  = dedupedIssues.filter(i => i.severity === 'medium').length;
-      const lowCount  = dedupedIssues.filter(i => i.severity === 'low').length;
-      const quality   = Math.max(0, 100 - (highCount * 10) - (medCount * 5) - (lowCount * 2));
+      const medCount = dedupedIssues.filter(i => i.severity === 'medium').length;
+      const lowCount = dedupedIssues.filter(i => i.severity === 'low').length;
+      const quality = Math.max(0, 100 - (highCount * 10) - (medCount * 5) - (lowCount * 2));
 
       return res.status(200).json({
         total_questions: totalQuestions,
@@ -145,7 +150,7 @@ SEVERITY: high = duplicate/missing question number or ordering, medium = duplica
             body: JSON.stringify({
               contents: [{
                 parts: [{
-                  text: SYSTEM_PROMPT + `\n\nQUESTION PAPER (part ${i+1}/${chunks.length}):\n${chunks[i]}\n\nReturn JSON audit result.`
+                  text: SYSTEM_PROMPT + `\n\nQUESTION PAPER (part ${i + 1}/${chunks.length}):\n${chunks[i]}\n\nReturn JSON audit result.`
                 }]
               }]
             }),
@@ -176,9 +181,9 @@ SEVERITY: high = duplicate/missing question number or ordering, medium = duplica
       });
 
       const highCount = dedupedIssues.filter(i => i.severity === 'high').length;
-      const medCount  = dedupedIssues.filter(i => i.severity === 'medium').length;
-      const lowCount  = dedupedIssues.filter(i => i.severity === 'low').length;
-      const quality   = Math.max(0, 100 - (highCount * 10) - (medCount * 5) - (lowCount * 2));
+      const medCount = dedupedIssues.filter(i => i.severity === 'medium').length;
+      const lowCount = dedupedIssues.filter(i => i.severity === 'low').length;
+      const quality = Math.max(0, 100 - (highCount * 10) - (medCount * 5) - (lowCount * 2));
 
       return res.status(200).json({
         total_questions: totalQuestions,
