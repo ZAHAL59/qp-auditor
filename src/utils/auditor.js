@@ -1,11 +1,11 @@
 // src/utils/auditor.js
-// Calls our own backend proxy — no API key needed from the user
+// Sends PDF images or text to backend for Gemini Vision analysis
 
-export async function auditPaper(content) {
+export async function auditPaper(content, images) {
   const response = await fetch('/api/audit', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, images }),
   });
 
   if (!response.ok) {

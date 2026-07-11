@@ -4,6 +4,7 @@ import UploadStep from './components/UploadStep';
 import LoadingStep from './components/LoadingStep';
 import ResultsStep from './components/ResultsStep';
 import { parseFile } from './utils/fileParser';
+import { pdfToImages } from './utils/pdfToImages';
 import { auditPaper } from './utils/auditor';
 
 const STEP = { UPLOAD: 'upload', LOADING: 'loading', RESULTS: 'results' };
@@ -13,20 +14,35 @@ export default function App() {
   const [result, setResult] = useState(null);
   const [issues, setIssues] = useState([]);
   const [error, setError] = useState('');
+  const [loadMsg, setLoadMsg] = useState('');
 
-  const handleStart = async ({ text, file, apiKey }) => {
+  const handleStart = async ({ text, file }) => {
     setStep(STEP.LOADING);
     setError('');
+
     try {
       let content = text;
+      let images = null;
+
       if (file) {
-        content = await parseFile(file);
-      }
-      if (!content || content.trim().length < 20) {
-        throw new Error('Could not extract readable text from the file. Please try pasting the text instead.');
+        const ext = file.name.split('.').pop().toLowerCase();
+
+        if (ext === 'pdf') {
+          // For PDFs: render as images for vision AI
+          setLoadMsg('Rendering PDF pages as images…');
+          images = await pdfToImages(file, 30); // up to 30 pages
+          setLoadMsg(`Extracted ${images.length} pages — sending to AI…`);
+          content = ''; // images will be used instead
+        } else {
+          // For DOCX/XLSX/TXT: extract text as before
+          setLoadMsg('Extracting text from file…');
+          content = await parseFile(file);
+        }
       }
 
-      const auditResult = await auditPaper(content);
+      setLoadMsg('AI is reading your question paper…');
+      const auditResult = await auditPaper(content, images);
+
       const numberedIssues = (auditResult.issues || []).map((issue, i) => ({
         ...issue,
         id: issue.id || i + 1,
@@ -47,11 +63,11 @@ export default function App() {
     setResult(null);
     setIssues([]);
     setError('');
+    setLoadMsg('');
   };
 
   return (
     <div style={{ minHeight: '100vh', background: '#f7f8fa' }}>
-      {/* Step indicator */}
       {step !== STEP.LOADING && (
         <div style={styles.stepBar}>
           {['Upload', 'Analyze', 'Review'].map((label, i) => {
@@ -62,17 +78,10 @@ export default function App() {
             return (
               <React.Fragment key={label}>
                 <div style={styles.stepItem}>
-                  <div style={{
-                    ...styles.stepDot,
-                    background: done ? '#4f6ef7' : active ? '#4f6ef7' : '#e2e5ea',
-                    color: done || active ? '#fff' : '#9099a8',
-                    opacity: active ? 1 : done ? 0.7 : 0.5,
-                  }}>
+                  <div style={{ ...styles.stepDot, background: done || active ? '#4f6ef7' : '#e2e5ea', color: done || active ? '#fff' : '#9099a8', opacity: active ? 1 : done ? 0.7 : 0.5 }}>
                     {done ? '✓' : num}
                   </div>
-                  <span style={{ ...styles.stepLabel, color: active ? '#1a1d23' : '#9099a8', fontWeight: active ? 500 : 400 }}>
-                    {label}
-                  </span>
+                  <span style={{ ...styles.stepLabel, color: active ? '#1a1d23' : '#9099a8', fontWeight: active ? 500 : 400 }}>{label}</span>
                 </div>
                 {i < 2 && <div style={{ ...styles.stepLine, background: done ? '#4f6ef7' : '#e2e5ea' }} />}
               </React.Fragment>
@@ -89,19 +98,12 @@ export default function App() {
       )}
 
       {step === STEP.UPLOAD && <UploadStep onStart={handleStart} loading={false} />}
-      {step === STEP.LOADING && <LoadingStep />}
+      {step === STEP.LOADING && <LoadingStep customMsg={loadMsg} />}
       {step === STEP.RESULTS && result && (
-        <ResultsStep
-          result={result}
-          issues={issues}
-          setIssues={setIssues}
-          onReset={handleReset}
-        />
+        <ResultsStep result={result} issues={issues} setIssues={setIssues} onReset={handleReset} />
       )}
 
-      <footer style={styles.footer}>
-        QP Auditor · Powered by Claude AI
-      </footer>
+      <footer style={styles.footer}>QP Auditor · Powered by Gemini Vision AI</footer>
     </div>
   );
 }
