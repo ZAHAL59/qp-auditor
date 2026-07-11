@@ -2,7 +2,6 @@
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  // Vercel sometimes needs manual body parsing
   let body = req.body;
   if (!body || typeof body === 'string') {
     try { body = JSON.parse(body || '{}'); } catch { body = {}; }
@@ -10,122 +9,56 @@ module.exports = async function handler(req, res) {
 
   const content = body.content || '';
   console.log('DEBUG content length:', content.length);
-  console.log('DEBUG content preview:', content.substring(0, 100));
 
   if (!content) return res.status(400).json({ error: 'No content provided' });
 
   const GROQ_API_KEY = process.env.GROQ_API_KEY;
   if (!GROQ_API_KEY) return res.status(500).json({ error: 'Server not configured.' });
 
-  // ── 1. CODE-BASED checks ──
-  const qnumRegex = /(?:^|\n|(?<=\s{2}))(\d{1,3})\s*\./g;
-  const allFound = [];
-  let match;
-  while ((match = qnumRegex.exec(content)) !== null) {
-    allFound.push(parseInt(match[1], 10));
-  }
+  const prompt = `You are a question paper proofreader. Analyze the question paper below and check ONLY these 4 things:
 
-  const freq = {};
-  allFound.forEach(n => { freq[n] = (freq[n] || 0) + 1; });
+1. duplicate_question_number — The MAIN question number (e.g. "5.", "21.") appears more than once in the paper. 
+   IMPORTANT: Ignore sub-items inside match-the-column questions (like "1. Terminal centromere" in Column II). Only flag the top-level question numbers.
 
-  console.log('DEBUG qnums:', JSON.stringify(allFound), 'freq:', JSON.stringify(freq));
+2. missing_question_number — A top-level question number is skipped in the sequence. For example, if questions go 9, 11 — then 10 is missing.
+   IMPORTANT: Only check top-level question numbers, not column sub-items or option numbers.
 
-  const seen = new Set();
-  const questionNumsInOrder = [];
-  allFound.forEach(n => {
-    if (!seen.has(n)) { seen.add(n); questionNumsInOrder.push(n); }
-  });
+3. duplicate_options — Within a single question, two or more answer options have EXACTLY identical text or value.
+   Example: option (3) is "7860" and option (4) is also "7860".
+   NOT duplicates: "p" and "-p", "x" and "2x", "sinθ" and "-sinθ" (different signs/coefficients).
 
-  const structuralIssues = [];
-  let id = 1;
+4. spelling — A word in a question is clearly misspelled (wrong letters). 
+   NOT spelling errors: numbers, math expressions, repeated values.
 
-  if (questionNumsInOrder.length > 0) {
-    const sorted = [...new Set(allFound)].sort((a, b) => a - b);
-    const min = sorted[0];
-    const max = sorted[sorted.length - 1];
+IMPORTANT RULES:
+- For question numbering checks: only consider TOP-LEVEL question numbers (the main numbered questions like 1, 2, 3... or 5, 6, 9, 11...). 
+  Ignore: option labels (1)(2)(3)(4), column sub-items (1. Terminal, 2. Centromere), decimal numbers (1.806, 6.023).
+- Only flag duplicate_options when options are 100% character-for-character identical.
+- Only flag spelling for actual misspelled English words.
 
-    // Duplicate question numbers
-    Object.entries(freq).forEach(([num, count]) => {
-      if (count > 1) {
-        structuralIssues.push({
-          id: id++,
-          question_num: `Q${num}`,
-          category: 'duplicate_question_number',
-          severity: 'high',
-          description: `Question number ${num} appears ${count} times in the paper.`,
-          suggestion: `Remove the duplicate. Only one question should be numbered ${num}.`,
-          confidence: 1.0,
-          original_text: `Q${num} appears ${count} times`,
-        });
-      }
-    });
-
-    // Missing question numbers
-    for (let i = min; i <= max; i++) {
-      if (!freq[i]) {
-        structuralIssues.push({
-          id: id++,
-          question_num: `Q${i}`,
-          category: 'missing_question_number',
-          severity: 'high',
-          description: `Question number ${i} is missing — sequence jumps from ${i - 1} to ${i + 1}.`,
-          suggestion: `Add the missing question ${i} or renumber to make the sequence continuous.`,
-          confidence: 1.0,
-          original_text: `Sequence skips number ${i}`,
-        });
-      }
-    }
-
-    // Out of order
-    for (let i = 1; i < questionNumsInOrder.length; i++) {
-      if (questionNumsInOrder[i] < questionNumsInOrder[i - 1]) {
-        structuralIssues.push({
-          id: id++,
-          question_num: `Q${questionNumsInOrder[i]}`,
-          category: 'question_ordering',
-          severity: 'high',
-          description: `Question ${questionNumsInOrder[i]} appears after question ${questionNumsInOrder[i - 1]} — out of order.`,
-          suggestion: `Move question ${questionNumsInOrder[i]} to its correct position.`,
-          confidence: 1.0,
-          original_text: `...${questionNumsInOrder[i - 1]}, ${questionNumsInOrder[i]}...`,
-        });
-      }
-    }
-  }
-
-  // ── 2. AI: spelling and duplicate options only ──
-  const prompt = `You are a question paper proofreader. Check ONLY these 2 things:
-
-1. duplicate_options — within a single question, two or more options have EXACTLY identical text or values.
-2. spelling — a word is clearly misspelled.
-
-STRICT RULES:
-- Only flag duplicate_options when options are 100% identical character-for-character. Example: both say "7860" exactly.
-- "p" and "-p" are NOT duplicates — they have different signs.
-- "x" and "2x" are NOT duplicates — they are different values.
-- "sin θ" and "-sin θ" are NOT duplicates.
-- Only flag when options are truly identical, like "7860" and "7860".
-- Only flag spelling for actual wrong letters in words, NOT numbers or math symbols.
-- Do NOT check question numbering or ordering.
-
-Return ONLY valid JSON, no markdown:
+Return ONLY valid JSON, no markdown, no explanation:
 {
-  "total_questions": <integer>,
+  "total_questions": <integer — count of top-level questions only>,
   "issues": [
     {
-      "id": <integer starting from ${id}>,
-      "question_num": "<e.g. Q11>",
-      "category": "<duplicate_options | spelling>",
-      "severity": "<medium | low>",
-      "description": "<description>",
+      "id": <unique integer starting from 1>,
+      "question_num": "<e.g. Q5, Q11>",
+      "category": "<duplicate_question_number | missing_question_number | duplicate_options | spelling | question_ordering>",
+      "severity": "<high | medium | low>",
+      "description": "<clear short description of the exact problem>",
       "suggestion": "<exact fix>",
       "confidence": <float 0.0-1.0>,
-      "original_text": "<exact problematic text, max 80 chars>"
+      "original_text": "<exact problematic text from paper, max 80 chars>"
     }
   ],
   "quality_score": <integer 0-100>,
-  "summary": "<one sentence>"
+  "summary": "<one sentence overall summary>"
 }
+
+SEVERITY:
+- high: duplicate question number, missing question number, question out of order
+- medium: duplicate options
+- low: spelling mistake
 
 QUESTION PAPER:
 ${content.substring(0, 8000)}`;
@@ -142,7 +75,10 @@ ${content.substring(0, 8000)}`;
         temperature: 0.1,
         max_tokens: 4096,
         messages: [
-          { role: 'system', content: 'You are a strict question paper proofreader. Respond with valid JSON only.' },
+          {
+            role: 'system',
+            content: 'You are a strict question paper proofreader. You understand the difference between top-level question numbers and sub-items inside match-the-column questions. Respond with valid JSON only.',
+          },
           { role: 'user', content: prompt },
         ],
       }),
@@ -156,22 +92,13 @@ ${content.substring(0, 8000)}`;
     const data = await groqRes.json();
     let raw = data.choices?.[0]?.message?.content || '';
     raw = raw.replace(/```json|```/g, '').trim();
-    const aiResult = JSON.parse(raw);
+    console.log('DEBUG AI raw:', raw.substring(0, 200));
 
-    const allIssues = [...structuralIssues, ...(aiResult.issues || [])];
-    const highCount = allIssues.filter(i => i.severity === 'high').length;
-    const medCount = allIssues.filter(i => i.severity === 'medium').length;
-    const lowCount = allIssues.filter(i => i.severity === 'low').length;
-    const quality = Math.max(0, 100 - (highCount * 10) - (medCount * 5) - (lowCount * 2));
-
-    return res.status(200).json({
-      total_questions: aiResult.total_questions || questionNumsInOrder.length,
-      issues: allIssues,
-      quality_score: quality,
-      summary: aiResult.summary || `Found ${allIssues.length} issue(s).`,
-    });
+    const result = JSON.parse(raw);
+    return res.status(200).json(result);
 
   } catch (err) {
+    console.log('DEBUG error:', err.message);
     return res.status(500).json({ error: err.message || 'Server error' });
   }
 };
