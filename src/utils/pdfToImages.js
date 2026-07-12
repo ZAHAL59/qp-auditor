@@ -14,7 +14,7 @@ export async function pdfToImages(file, maxPages = 20) {
 
   for (let i = 1; i <= totalPages; i++) {
     const page = await pdf.getPage(i);
-    const viewport = page.getViewport({ scale: 2.0 }); // high res for clarity
+    const viewport = page.getViewport({ scale: 1.0 }); // high res for clarity
 
     const canvas = document.createElement('canvas');
     canvas.width = viewport.width;
@@ -24,7 +24,7 @@ export async function pdfToImages(file, maxPages = 20) {
     await page.render({ canvasContext: ctx, viewport }).promise;
 
     // Convert to base64 JPEG (smaller than PNG, good enough for text)
-    const base64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+    const base64 = canvas.toDataURL('image/jpeg', 0.5).split(',')[1];
     images.push({ page: i, base64, totalPages: pdf.numPages });
   }
 

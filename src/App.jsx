@@ -4,55 +4,27 @@ import UploadStep from './components/UploadStep';
 import LoadingStep from './components/LoadingStep';
 import ResultsStep from './components/ResultsStep';
 import { parseFile } from './utils/fileParser';
-import { pdfToImages } from './utils/pdfToImages';
 import { auditPaper } from './utils/auditor';
 
 const STEP = { UPLOAD: 'upload', LOADING: 'loading', RESULTS: 'results' };
-
-// OpenRouter key exposed to frontend via REACT_APP_ prefix
-const OPENROUTER_KEY = process.env.REACT_APP_OPENROUTER_API_KEY;
 
 export default function App() {
   const [step, setStep] = useState(STEP.UPLOAD);
   const [result, setResult] = useState(null);
   const [issues, setIssues] = useState([]);
   const [error, setError] = useState('');
-  const [loadMsg, setLoadMsg] = useState('');
 
   const handleStart = async ({ text, file }) => {
     setStep(STEP.LOADING);
     setError('');
-
     try {
       let content = text;
-      let images = null;
+      if (file) content = await parseFile(file);
 
-      if (file) {
-        const ext = file.name.split('.').pop().toLowerCase();
-        if (ext === 'pdf') {
-          setLoadMsg('Rendering PDF pages…');
-          const [imgs, txt] = await Promise.all([
-            pdfToImages(file, 30),
-            import('./utils/fileParser').then(m => m.parseFile(file)).catch(() => ''),
-          ]);
-          images = imgs;
-          content = txt;
-          setLoadMsg(`${images.length} pages extracted — sending to AI…`);
-        } else {
-          setLoadMsg('Extracting text from file…');
-          content = await parseFile(file);
-        }
-      }
-
-      setLoadMsg('AI is reading your question paper…');
-      const auditResult = await auditPaper(content, images, OPENROUTER_KEY);
-
+      const auditResult = await auditPaper(content);
       const numberedIssues = (auditResult.issues || []).map((issue, i) => ({
-        ...issue,
-        id: issue.id || i + 1,
-        _state: 'pending',
+        ...issue, id: issue.id || i + 1, _state: 'pending',
       }));
-
       setResult(auditResult);
       setIssues(numberedIssues);
       setStep(STEP.RESULTS);
@@ -67,7 +39,6 @@ export default function App() {
     setResult(null);
     setIssues([]);
     setError('');
-    setLoadMsg('');
   };
 
   return (
@@ -102,12 +73,12 @@ export default function App() {
       )}
 
       {step === STEP.UPLOAD && <UploadStep onStart={handleStart} loading={false} />}
-      {step === STEP.LOADING && <LoadingStep customMsg={loadMsg} />}
+      {step === STEP.LOADING && <LoadingStep />}
       {step === STEP.RESULTS && result && (
         <ResultsStep result={result} issues={issues} setIssues={setIssues} onReset={handleReset} />
       )}
 
-      <footer style={styles.footer}>QP Auditor · Powered by Vision AI</footer>
+      <footer style={styles.footer}>QP Auditor · Powered by AI</footer>
     </div>
   );
 }

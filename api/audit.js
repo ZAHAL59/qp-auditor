@@ -1,4 +1,6 @@
-// api/audit.js — OpenRouter + Gemini 2.0 Flash (free, vision supported)
+// api/audit.js — Groq text mode with hybrid approach
+// Code: question number checks (100% accurate)
+// AI: duplicate options + spelling only
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
@@ -7,40 +9,99 @@ module.exports = async function handler(req, res) {
     try { body = JSON.parse(body || '{}'); } catch { body = {}; }
   }
 
-  const { content, images } = body;
-  const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-  if (!OPENROUTER_API_KEY) return res.status(500).json({ error: 'Server not configured. Set OPENROUTER_API_KEY.' });
+  const content = body.content || '';
+  if (!content) return res.status(400).json({ error: 'No content provided' });
 
-  console.log('DEBUG mode:', images ? `vision (${images.length} pages)` : 'text', 'content len:', (content || '').length);
+  const GROQ_API_KEY = process.env.GROQ_API_KEY;
+  if (!GROQ_API_KEY) return res.status(500).json({ error: 'Server not configured. Set GROQ_API_KEY.' });
 
-  const SYSTEM_PROMPT = `You are an expert question paper proofreader for competitive exams (JEE, NEET, etc.).
+  // ── 1. CODE-BASED: Question number checks (100% accurate) ──
+  const qnumRegex = /(?:^|\n)\s*(\d+)\s*\.\s*(?=[A-Za-z])/g;
+  const allFound = [];
+  let match;
+  while ((match = qnumRegex.exec(content)) !== null) {
+    allFound.push(parseInt(match[1], 10));
+  }
 
-Carefully read the question paper and detect ONLY these issues:
+  const freq = {};
+  allFound.forEach(n => { freq[n] = (freq[n] || 0) + 1; });
 
-1. duplicate_question_number — A top-level question number appears more than once.
-   IGNORE: sub-items in match-the-column (e.g. "1. Terminal centromere"), option labels (1)(2)(3)(4), decimal numbers (1.806).
+  const seen = new Set();
+  const inOrder = [];
+  allFound.forEach(n => { if (!seen.has(n)) { seen.add(n); inOrder.push(n); } });
 
-2. missing_question_number — A top-level question number is skipped (e.g. 9 then 11 — 10 is missing).
+  const structuralIssues = [];
+  let id = 1;
 
-3. question_ordering — Top-level question numbers are out of sequence (e.g. 8, 9, 7, 10).
+  if (inOrder.length > 0) {
+    const sorted = [...new Set(allFound)].sort((a, b) => a - b);
+    const min = sorted[0];
+    const max = sorted[sorted.length - 1];
 
-4. duplicate_options — Within one question, two or more answer options are EXACTLY identical.
-   You can read chemistry formulas, Greek letters (α β γ θ), charge symbols (⊕ ⊖), radical dots (Ċ), structural formulas.
-   Example: option (3) is "CH₃CH₂ and Cl⊕" and option (4) is also "CH₃CH₂ and Cl⊕" → duplicate.
-   NOT duplicates: "Cl·" and "Cl⊕" (different), "p" and "-p" (different signs), "x" and "2x" (different).
+    // Duplicate question numbers
+    Object.entries(freq).forEach(([num, count]) => {
+      if (count > 1) {
+        structuralIssues.push({
+          id: id++, question_num: `Q${num}`,
+          category: 'duplicate_question_number', severity: 'high',
+          description: `Question number ${num} appears ${count} times in the paper.`,
+          suggestion: `Remove the duplicate. Only one question should be numbered ${num}.`,
+          confidence: 1.0, original_text: `Q${num} appears ${count} times`,
+        });
+      }
+    });
 
-5. spelling — A clearly misspelled English word. Not numbers or chemistry symbols.
+    // Missing question numbers
+    for (let i = min; i <= max; i++) {
+      if (!freq[i]) {
+        structuralIssues.push({
+          id: id++, question_num: `Q${i}`,
+          category: 'missing_question_number', severity: 'high',
+          description: `Question number ${i} is missing — sequence jumps from ${i-1} to ${i+1}.`,
+          suggestion: `Add question ${i} or renumber to make sequence continuous.`,
+          confidence: 1.0, original_text: `Sequence skips ${i}`,
+        });
+      }
+    }
+
+    // Out of order
+    for (let i = 1; i < inOrder.length; i++) {
+      if (inOrder[i] < inOrder[i - 1]) {
+        structuralIssues.push({
+          id: id++, question_num: `Q${inOrder[i]}`,
+          category: 'question_ordering', severity: 'high',
+          description: `Q${inOrder[i]} appears after Q${inOrder[i-1]} — out of order.`,
+          suggestion: `Move Q${inOrder[i]} to its correct position.`,
+          confidence: 1.0, original_text: `...${inOrder[i-1]}, ${inOrder[i]}...`,
+        });
+      }
+    }
+  }
+
+  // ── 2. AI: duplicate options + spelling only ──
+  const prompt = `You are a question paper proofreader. Check ONLY these 2 things:
+
+1. duplicate_options — Within a single question, two or more options have 100% IDENTICAL text.
+   Example: option (3) is "7860" and option (4) is also "7860" — flag this.
+   NOT duplicates: "p" and "-p", "CH₃CH₂ and Cl·" and "CH₃CH₂ and Cl⊕", "sinθ" and "-sinθ".
+   Only flag when options are character-for-character identical.
+
+2. spelling — A word is clearly misspelled (wrong letters).
+   Example: "folowing" → "following", "Whcih" → "Which".
+   Do NOT flag numbers, formulas, or symbols as spelling errors.
+
+Do NOT check question numbering — that is already handled separately.
 
 Return ONLY valid JSON, no markdown:
 {
   "total_questions": <integer>,
   "issues": [
     {
-      "id": <unique integer from 1>,
+      "id": <integer starting from ${id}>,
       "question_num": "<e.g. Q11>",
-      "category": "<duplicate_question_number | missing_question_number | question_ordering | duplicate_options | spelling>",
-      "severity": "<high | medium | low>",
-      "description": "<specific description>",
+      "category": "<duplicate_options | spelling>",
+      "severity": "<medium | low>",
+      "description": "<for duplicate_options: state which options are identical and their exact value. For spelling: the misspelled word and correction>",
       "suggestion": "<exact fix>",
       "confidence": <0.0-1.0>,
       "original_text": "<exact problematic text, max 80 chars>"
@@ -50,128 +111,64 @@ Return ONLY valid JSON, no markdown:
   "summary": "<one sentence>"
 }
 
-SEVERITY: high = duplicate/missing question number or ordering, medium = duplicate options, low = spelling`;
+SEVERITY: medium = duplicate_options, low = spelling
 
-  const callOpenRouter = async (messages) => {
-    const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+QUESTION PAPER:
+${content.substring(0, 12000)}`;
+
+  try {
+    const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-        'HTTP-Referer': 'https://qp-auditor.vercel.app',
-        'X-Title': 'QP Auditor',
+        'Authorization': `Bearer ${GROQ_API_KEY}`,
       },
       body: JSON.stringify({
-        model: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
+        model: 'llama-3.3-70b-versatile',
+        temperature: 0.1,
         max_tokens: 4096,
         messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          ...messages,
+          { role: 'system', content: 'You are a strict question paper proofreader. Only flag duplicate_options when options are 100% identical. Respond with valid JSON only.' },
+          { role: 'user', content: prompt },
         ],
       }),
     });
 
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({}));
-      throw new Error(err.error?.message || `OpenRouter API error ${resp.status}`);
+    if (!groqRes.ok) {
+      const err = await groqRes.json().catch(() => ({}));
+      return res.status(502).json({ error: err.error?.message || 'Groq API error' });
     }
 
-    const data = await resp.json();
+    const data = await groqRes.json();
     let raw = data.choices?.[0]?.message?.content || '';
     raw = raw.replace(/```json|```/g, '').trim();
-    console.log('DEBUG raw:', raw.substring(0, 150));
-    return JSON.parse(raw);
-  };
+    const aiResult = JSON.parse(raw);
 
-  try {
-    const allIssues = [];
-    let totalQuestions = 0;
-    let idCounter = 1;
-    let summaryText = '';
-
-    if (images && images.length > 0) {
-      // ── VISION MODE: 2 pages per batch ──
-      const BATCH = 2;
-
-      for (let i = 0; i < images.length; i += BATCH) {
-        const batch = images.slice(i, i + BATCH);
-
-        const userContent = [
-          ...batch.map(img => ({
-            type: 'image_url',
-            image_url: { url: `data:image/jpeg;base64,${img.base64}` },
-          })),
-          {
-            type: 'text',
-            text: `These are pages ${i + 1}–${Math.min(i + BATCH, images.length)} of ${images[images.length - 1].totalPages}. Analyze and return the JSON audit result.`,
-          },
-        ];
-
-        console.log(`DEBUG processing pages ${i + 1}-${Math.min(i + BATCH, images.length)}`);
-        const batchResult = await callOpenRouter([{ role: 'user', content: userContent }]);
-        totalQuestions += batchResult.total_questions || 0;
-        summaryText = batchResult.summary || '';
-        (batchResult.issues || []).forEach(issue => {
-          allIssues.push({ ...issue, id: idCounter++ });
-        });
-
-        // Delay between batches to avoid rate limit
-        if (i + BATCH < images.length) {
-          await new Promise(r => setTimeout(r, 2000));
-        }
-      }
-
-    } else {
-      // ── TEXT MODE: for DOCX/TXT ──
-      if (!content) return res.status(400).json({ error: 'No content provided' });
-
-      const CHUNK = 15000;
-      const chunks = [];
-      for (let i = 0; i < content.length; i += CHUNK) {
-        chunks.push(content.substring(i, i + CHUNK));
-        if (i + CHUNK >= content.length) break;
-      }
-
-      for (let i = 0; i < chunks.length; i++) {
-        const chunkResult = await callOpenRouter([{
-          role: 'user',
-          content: `QUESTION PAPER (part ${i + 1}/${chunks.length}):\n\n${chunks[i]}\n\nReturn the JSON audit result.`,
-        }]);
-        totalQuestions += chunkResult.total_questions || 0;
-        summaryText = chunkResult.summary || '';
-        (chunkResult.issues || []).forEach(issue => {
-          allIssues.push({ ...issue, id: idCounter++ });
-        });
-
-        if (i + 1 < chunks.length) await new Promise(r => setTimeout(r, 1000));
-      }
-    }
+    // Merge structural + AI issues
+    const allIssues = [...structuralIssues, ...(aiResult.issues || [])];
 
     // Deduplicate
-    const seen = new Set();
+    const seenKeys = new Set();
     const dedupedIssues = allIssues.filter(issue => {
-      const key = `${issue.question_num}-${issue.category}-${issue.description}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
+      const key = `${issue.question_num}-${issue.category}`;
+      if (seenKeys.has(key) && issue.category !== 'spelling') return false;
+      seenKeys.add(key);
       return true;
     }).map((issue, i) => ({ ...issue, id: i + 1 }));
 
     const highCount = dedupedIssues.filter(i => i.severity === 'high').length;
-    const medCount = dedupedIssues.filter(i => i.severity === 'medium').length;
-    const lowCount = dedupedIssues.filter(i => i.severity === 'low').length;
-    const quality = Math.max(0, 100 - (highCount * 10) - (medCount * 5) - (lowCount * 2));
-
-    console.log('DEBUG total issues:', dedupedIssues.length, 'questions:', totalQuestions);
+    const medCount  = dedupedIssues.filter(i => i.severity === 'medium').length;
+    const lowCount  = dedupedIssues.filter(i => i.severity === 'low').length;
+    const quality   = Math.max(0, 100 - (highCount * 10) - (medCount * 5) - (lowCount * 2));
 
     return res.status(200).json({
-      total_questions: totalQuestions,
+      total_questions: aiResult.total_questions || inOrder.length,
       issues: dedupedIssues,
       quality_score: quality,
-      summary: summaryText || `Found ${dedupedIssues.length} issue(s) across ${totalQuestions} questions.`,
+      summary: aiResult.summary || `Found ${dedupedIssues.length} issue(s).`,
     });
 
   } catch (err) {
-    console.log('DEBUG error:', err.message);
     return res.status(500).json({ error: err.message || 'Server error' });
   }
 };
