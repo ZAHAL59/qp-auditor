@@ -41,7 +41,7 @@ module.exports = async function handler(req, res) {
 
   // Match question numbers: number + dot + letter (question text starts with letter)
   // Uses questionContent only (after subject headers)
-  const qnumRegex = /(?:^|\n)\s*(\d+)\s*\.\s*(?=[A-Za-z])/g;
+  const qnumRegex = /(?<!\d\.)(\d{1,3})\s*\.\s{2,}(?=[A-Z])/g;
   const allFound = [];
   let match;
   while ((match = qnumRegex.exec(questionContent)) !== null) {
@@ -107,7 +107,7 @@ module.exports = async function handler(req, res) {
 
   // ── 2. AI: duplicate options + spelling only ──
   // Send in chunks to handle large papers
-  const CHUNK_SIZE = 20000;
+  const CHUNK_SIZE = 10000;
   const chunks = [];
   for (let i = 0; i < questionContent.length; i += CHUNK_SIZE) {
     chunks.push(questionContent.substring(i, i + CHUNK_SIZE));
@@ -153,6 +153,9 @@ Return ONLY valid JSON:
 
 QUESTION PAPER (part ${c + 1}/${chunks.length}):
 ${chunks[c]}`;
+
+    // Wait between chunks to avoid rate limit
+    if (c > 0) await new Promise(r => setTimeout(r, 40000));
 
     try {
       const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
