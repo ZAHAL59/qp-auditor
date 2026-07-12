@@ -31,9 +31,13 @@ export default function App() {
         const ext = file.name.split('.').pop().toLowerCase();
         if (ext === 'pdf') {
           setLoadMsg('Rendering PDF pages…');
-          images = await pdfToImages(file, 30);
+          const [imgs, txt] = await Promise.all([
+            pdfToImages(file, 30),
+            import('./utils/fileParser').then(m => m.parseFile(file)).catch(() => ''),
+          ]);
+          images = imgs;
+          content = txt;
           setLoadMsg(`${images.length} pages extracted — sending to AI…`);
-          content = '';
         } else {
           setLoadMsg('Extracting text from file…');
           content = await parseFile(file);
