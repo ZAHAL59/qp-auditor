@@ -16,7 +16,7 @@ module.exports = async function handler(req, res) {
   console.log('DEBUG content len:', content.length);
 
   // Split into chunks with overlap
-  const CHUNK_SIZE = 10000;
+  const CHUNK_SIZE = 25000;
   const chunks = [];
   for (let i = 0; i < content.length; i += CHUNK_SIZE) {
     chunks.push(content.substring(i, i + CHUNK_SIZE));
@@ -28,7 +28,7 @@ module.exports = async function handler(req, res) {
   let idCounter = 1;
 
   for (let c = 0; c < chunks.length; c++) {
-    if (c > 0) await new Promise(r => setTimeout(r, 40000));
+    if (c > 0) await new Promise(r => setTimeout(r, 5000));
 
     const prompt = `You are auditing a question paper. The paper may have a header section with "IMPORTANT INSTRUCTIONS" containing numbered points like "1. Use of calculator is prohibited". IGNORE those completely — they are NOT questions.
 
@@ -79,7 +79,7 @@ ${chunks[c]}`;
           'Authorization': `Bearer ${GROQ_API_KEY}`,
         },
         body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
+          model: 'openai/gpt-oss-20b',
           temperature: 0.1,
           max_tokens: 4096,
           messages: [
