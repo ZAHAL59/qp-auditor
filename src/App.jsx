@@ -19,7 +19,11 @@ export default function App() {
     setError('');
     try {
       let content = text;
-      if (file) content = await parseFile(file);
+      if (file) {
+        content = await parseFile(file);
+        console.log('Extracted text length:', content.length);
+        console.log('Preview:', content.substring(0, 300));
+      }
 
       const auditResult = await auditPaper(content);
       const numberedIssues = (auditResult.issues || []).map((issue, i) => ({
