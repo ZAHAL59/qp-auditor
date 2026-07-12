@@ -67,7 +67,7 @@ async function callOpenRouter(messages, apiKey) {
       'X-Title': 'QP Auditor',
     },
     body: JSON.stringify({
-      model: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
+      model: 'google/gemma-4-26b-a4b-it:free',
       max_tokens: 8000,
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
