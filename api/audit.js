@@ -41,7 +41,7 @@ module.exports = async function handler(req, res) {
 
   // Match question numbers: number + dot + letter (question text starts with letter)
   // Uses questionContent only (after subject headers)
-  const qnumRegex = /(?<!\d\.)(\d{1,3})\s*\.\s{2,}(?=[A-Z])/g;
+  const qnumRegex = /(?<!\d)([1-9]\d{0,2})\.\s{2,}(?=[A-Z][a-zA-Z\s]{10,})/g;
   const allFound = [];
   let match;
   while ((match = qnumRegex.exec(questionContent)) !== null) {
