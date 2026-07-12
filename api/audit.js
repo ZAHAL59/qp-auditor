@@ -14,11 +14,28 @@ module.exports = async function handler(req, res) {
   if (!GROQ_API_KEY) return res.status(500).json({ error: 'Server not configured. Set GROQ_API_KEY.' });
 
   // ── 1. CODE-BASED: Question number checks ──
-  // Skip instructions/header — start from first subject header
+  // Skip everything before questions start
+  // Strategy 1: find subject headers
   const SUBJECT_HEADERS = ['PHYSICS', 'CHEMISTRY', 'BIOLOGY', 'MATHEMATICS', 'MATHS', 'SOCIAL SCIENCE', 'ENGLISH', 'BOTANY', 'ZOOLOGY', 'SCIENCE'];
   const headerRegex = new RegExp('(' + SUBJECT_HEADERS.join('|') + ')', 'i');
   const headerMatch = headerRegex.exec(content);
-  const questionContent = headerMatch ? content.substring(headerMatch.index) : content;
+
+  // Strategy 2: find "IMPORTANT INSTRUCTIONS" and skip past its numbered list
+  let skipIndex = 0;
+  const instrMatch = /IMPORTANT\s+INSTRUCTIONS/i.exec(content);
+  if (instrMatch) {
+    // Find where the instructions end — look for a blank line or subject header after them
+    const afterInstr = content.substring(instrMatch.index);
+    // Instructions end when we hit a subject header or a line that looks like a question (longer than 60 chars)
+    const endOfInstr = headerRegex.exec(afterInstr);
+    if (endOfInstr) {
+      skipIndex = instrMatch.index + endOfInstr.index;
+    }
+  }
+
+  // Use whichever skip is further in the document
+  if (headerMatch) skipIndex = Math.max(skipIndex, headerMatch.index);
+  const questionContent = skipIndex > 0 ? content.substring(skipIndex) : content;
 
   console.log('DEBUG content len:', content.length, 'question content len:', questionContent.length);
 
@@ -90,18 +107,21 @@ module.exports = async function handler(req, res) {
 
   // ── 2. AI: duplicate options + spelling only ──
   // Send in chunks to handle large papers
-  const CHUNK_SIZE = 12000;
+  const CHUNK_SIZE = 20000;
   const chunks = [];
   for (let i = 0; i < questionContent.length; i += CHUNK_SIZE) {
     chunks.push(questionContent.substring(i, i + CHUNK_SIZE));
-    if (i + CHUNK_SIZE >= questionContent.length) break;
   }
 
   const aiIssues = [];
   let totalQuestions = 0;
+  console.log('DEBUG chunks:', chunks.length, 'total content:', questionContent.length);
 
   for (let c = 0; c < chunks.length; c++) {
     const prompt = `You are a question paper proofreader. Check ONLY these 2 things:
+
+IMPORTANT: If the paper has an "IMPORTANT INSTRUCTIONS" section at the top with numbered points like "1. Use of calculator...", "2. The candidates...", completely IGNORE those numbers. They are not question numbers.
+Only count numbers that are actual exam questions with answer options (1)(2)(3)(4).
 
 1. duplicate_options — Within a single question, two or more options have 100% IDENTICAL text/value.
    Example: option (3) is "7860" and option (4) is also "7860".
