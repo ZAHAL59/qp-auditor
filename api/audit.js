@@ -1,4 +1,4 @@
-// api/audit.js — Groq text mode with hybrid approach
+// api/audit.js — Full AI approach, strict prompt
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
@@ -13,149 +13,63 @@ module.exports = async function handler(req, res) {
   const GROQ_API_KEY = process.env.GROQ_API_KEY;
   if (!GROQ_API_KEY) return res.status(500).json({ error: 'Server not configured. Set GROQ_API_KEY.' });
 
-  // ── 1. CODE-BASED: Question number checks ──
-  // Skip everything before questions start
-  // Strategy 1: find subject headers
-  const SUBJECT_HEADERS = ['PHYSICS', 'CHEMISTRY', 'BIOLOGY', 'MATHEMATICS', 'MATHS', 'SOCIAL SCIENCE', 'ENGLISH', 'BOTANY', 'ZOOLOGY', 'SCIENCE'];
-  const headerRegex = new RegExp('(' + SUBJECT_HEADERS.join('|') + ')', 'i');
-  const headerMatch = headerRegex.exec(content);
+  console.log('DEBUG content len:', content.length);
 
-  // Strategy 2: find "IMPORTANT INSTRUCTIONS" and skip past its numbered list
-  let skipIndex = 0;
-  const instrMatch = /IMPORTANT\s+INSTRUCTIONS/i.exec(content);
-  if (instrMatch) {
-    // Find where the instructions end — look for a blank line or subject header after them
-    const afterInstr = content.substring(instrMatch.index);
-    // Instructions end when we hit a subject header or a line that looks like a question (longer than 60 chars)
-    const endOfInstr = headerRegex.exec(afterInstr);
-    if (endOfInstr) {
-      skipIndex = instrMatch.index + endOfInstr.index;
-    }
-  }
-
-  // Use whichever skip is further in the document
-  if (headerMatch) skipIndex = Math.max(skipIndex, headerMatch.index);
-  const questionContent = skipIndex > 0 ? content.substring(skipIndex) : content;
-
-  console.log('DEBUG content len:', content.length, 'question content len:', questionContent.length);
-
-  // Match question numbers: number + dot + letter (question text starts with letter)
-  // Uses questionContent only (after subject headers)
-  const qnumRegex = /(?<!\d)([1-9]\d{0,2})\.\s{2,}(?=[A-Z][a-zA-Z\s]{10,})/g;
-  const allFound = [];
-  let match;
-  while ((match = qnumRegex.exec(questionContent)) !== null) {
-    allFound.push(parseInt(match[1], 10));
-  }
-
-  console.log('DEBUG found question nums:', allFound);
-
-  const freq = {};
-  allFound.forEach(n => { freq[n] = (freq[n] || 0) + 1; });
-
-  const seen = new Set();
-  const inOrder = [];
-  allFound.forEach(n => { if (!seen.has(n)) { seen.add(n); inOrder.push(n); } });
-
-  const structuralIssues = [];
-  let id = 1;
-
-  if (inOrder.length > 0) {
-    const sorted = [...new Set(allFound)].sort((a, b) => a - b);
-    const min = sorted[0];
-    const max = sorted[sorted.length - 1];
-
-    // Duplicate question numbers
-    Object.entries(freq).forEach(([num, count]) => {
-      if (count > 1) {
-        structuralIssues.push({
-          id: id++, question_num: `Q${num}`,
-          category: 'duplicate_question_number', severity: 'high',
-          description: `Question number ${num} appears ${count} times in the paper.`,
-          suggestion: `Remove the duplicate. Only one question should be numbered ${num}.`,
-          confidence: 1.0, original_text: `Q${num} appears ${count} times`,
-        });
-      }
-    });
-
-    // Missing question numbers
-    for (let i = min; i <= max; i++) {
-      if (!freq[i]) {
-        structuralIssues.push({
-          id: id++, question_num: `Q${i}`,
-          category: 'missing_question_number', severity: 'high',
-          description: `Question number ${i} is missing — sequence jumps from ${i - 1} to ${i + 1}.`,
-          suggestion: `Add question ${i} or renumber to make sequence continuous.`,
-          confidence: 1.0, original_text: `Sequence skips ${i}`,
-        });
-      }
-    }
-
-    // Out of order
-    for (let i = 1; i < inOrder.length; i++) {
-      if (inOrder[i] < inOrder[i - 1]) {
-        structuralIssues.push({
-          id: id++, question_num: `Q${inOrder[i]}`,
-          category: 'question_ordering', severity: 'high',
-          description: `Q${inOrder[i]} appears after Q${inOrder[i - 1]} — out of order.`,
-          suggestion: `Move Q${inOrder[i]} to its correct position.`,
-          confidence: 1.0, original_text: `...${inOrder[i - 1]}, ${inOrder[i]}...`,
-        });
-      }
-    }
-  }
-
-  // ── 2. AI: duplicate options + spelling only ──
-  // Send in chunks to handle large papers
+  // Split into chunks with overlap
   const CHUNK_SIZE = 10000;
   const chunks = [];
-  for (let i = 0; i < questionContent.length; i += CHUNK_SIZE) {
-    chunks.push(questionContent.substring(i, i + CHUNK_SIZE));
+  for (let i = 0; i < content.length; i += CHUNK_SIZE) {
+    chunks.push(content.substring(i, i + CHUNK_SIZE));
   }
+  console.log('DEBUG chunks:', chunks.length);
 
-  const aiIssues = [];
+  const allIssues = [];
   let totalQuestions = 0;
-  console.log('DEBUG chunks:', chunks.length, 'total content:', questionContent.length);
+  let idCounter = 1;
 
   for (let c = 0; c < chunks.length; c++) {
-    const prompt = `You are a question paper proofreader. Check ONLY these 2 things:
+    if (c > 0) await new Promise(r => setTimeout(r, 40000));
 
-IMPORTANT: If the paper has an "IMPORTANT INSTRUCTIONS" section at the top with numbered points like "1. Use of calculator...", "2. The candidates...", completely IGNORE those numbers. They are not question numbers.
-Only count numbers that are actual exam questions with answer options (1)(2)(3)(4).
+    const prompt = `You are auditing a question paper. The paper may have a header section with "IMPORTANT INSTRUCTIONS" containing numbered points like "1. Use of calculator is prohibited". IGNORE those completely — they are NOT questions.
 
-1. duplicate_options — Within a single question, two or more options have 100% IDENTICAL text/value.
-   Example: option (3) is "7860" and option (4) is also "7860".
-   NOT duplicates: "p" and "-p", "sinθ" and "-sinθ", "x" and "2x", values with different signs.
-   Only flag when options are character-for-character identical.
+Real exam questions always have 4 answer options labeled (1)(2)(3)(4) or (A)(B)(C)(D) below them.
 
-2. spelling — A word is clearly misspelled (wrong letters only).
-   Do NOT flag numbers, formulas, or symbols.
+From this text, find ONLY these issues:
 
-Do NOT check question numbering.
+1. duplicate_question_number: A question number is used more than once (e.g. question 5 appears in both PHYSICS and CHEMISTRY sections)
+
+2. missing_question_number: A question number is skipped in the sequence. For example if you see questions 9 and 11 but no question 10, then 10 is missing. Only check questions that have 4 answer options.
+
+3. question_ordering: Questions are not in ascending order (e.g. question 8 comes after question 9)
+
+4. duplicate_options: Inside one question, two or more of the 4 options (1)(2)(3)(4) have EXACTLY the same text. For example option (3) says "7860" and option (4) also says "7860". Only flag when they are 100% character-for-character identical. "p" and "-p" are NOT duplicates.
+
+5. spelling: A word in a question is clearly misspelled. NOT numbers or formulas.
+
+RULES:
+- Numbered items in IMPORTANT INSTRUCTIONS are NOT questions — ignore them completely
+- Only count numbers as question numbers if they have 4 answer options below them
+- For duplicate_options: only flag when options are truly identical word-for-word
 
 Return ONLY valid JSON:
 {
-  "total_questions": <integer>,
+  "total_questions": <number of real exam questions found in this chunk>,
   "issues": [
     {
-      "id": <integer starting from ${id}>,
-      "question_num": "<e.g. Q11>",
-      "category": "<duplicate_options | spelling>",
-      "severity": "<medium | low>",
-      "description": "<exact description>",
-      "suggestion": "<exact fix>",
-      "confidence": <0.0-1.0>,
-      "original_text": "<problematic text, max 80 chars>"
+      "id": ${idCounter},
+      "question_num": "Q5",
+      "category": "duplicate_question_number | missing_question_number | question_ordering | duplicate_options | spelling",
+      "severity": "high | medium | low",
+      "description": "clear description",
+      "suggestion": "exact fix",
+      "confidence": 0.9,
+      "original_text": "exact text max 80 chars"
     }
-  ],
-  "summary": "<one sentence>"
+  ]
 }
 
-QUESTION PAPER (part ${c + 1}/${chunks.length}):
+CHUNK ${c + 1} of ${chunks.length}:
 ${chunks[c]}`;
-
-    // Wait between chunks to avoid rate limit
-    if (c > 0) await new Promise(r => setTimeout(r, 40000));
 
     try {
       const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -169,7 +83,10 @@ ${chunks[c]}`;
           temperature: 0.1,
           max_tokens: 4096,
           messages: [
-            { role: 'system', content: 'You are a strict question paper proofreader. Only flag duplicate_options when 100% identical. Respond with valid JSON only.' },
+            {
+              role: 'system',
+              content: 'You are a strict exam paper auditor. Only flag real issues. Never flag instruction section numbers as question numbers. Only flag duplicate options when they are 100% identical. Return valid JSON only.',
+            },
             { role: 'user', content: prompt },
           ],
         }),
@@ -183,23 +100,27 @@ ${chunks[c]}`;
       const data = await groqRes.json();
       let raw = data.choices?.[0]?.message?.content || '';
       raw = raw.replace(/```json|```/g, '').trim();
-      const aiResult = JSON.parse(raw);
-      totalQuestions += aiResult.total_questions || 0;
-      (aiResult.issues || []).forEach(issue => aiIssues.push({ ...issue, id: id++ }));
+
+      const start = raw.indexOf('{');
+      const end = raw.lastIndexOf('}');
+      if (start !== -1 && end !== -1) {
+        const result = JSON.parse(raw.substring(start, end + 1));
+        totalQuestions += result.total_questions || 0;
+        (result.issues || []).forEach(issue => {
+          allIssues.push({ ...issue, id: idCounter++ });
+        });
+      }
     } catch (err) {
-      console.log('DEBUG AI error chunk', c, err.message);
+      console.log('DEBUG chunk error:', c, err.message);
     }
   }
 
-  // Merge structural + AI issues
-  const allIssues = [...structuralIssues, ...aiIssues];
-
   // Deduplicate
-  const seenKeys = new Set();
+  const seen = new Set();
   const dedupedIssues = allIssues.filter(issue => {
     const key = `${issue.question_num}-${issue.category}-${issue.description}`;
-    if (seenKeys.has(key)) return false;
-    seenKeys.add(key);
+    if (seen.has(key)) return false;
+    seen.add(key);
     return true;
   }).map((issue, i) => ({ ...issue, id: i + 1 }));
 
@@ -209,9 +130,9 @@ ${chunks[c]}`;
   const quality = Math.max(0, 100 - (highCount * 10) - (medCount * 5) - (lowCount * 2));
 
   return res.status(200).json({
-    total_questions: totalQuestions || inOrder.length,
+    total_questions: totalQuestions,
     issues: dedupedIssues,
     quality_score: quality,
-    summary: `Found ${dedupedIssues.length} issue(s) across ${totalQuestions || inOrder.length} questions.`,
+    summary: `Found ${dedupedIssues.length} issue(s) across ${totalQuestions} questions.`,
   });
 };
