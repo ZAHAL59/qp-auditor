@@ -84,20 +84,34 @@ export async function auditPaper(content, images, apiKey) {
   // ── VISION MODE ──
   if (images && images.length > 0) {
 
-    // 1. Run AI vision on all pages in parallel (only checks duplicate options + spelling)
-    const pageResults = await Promise.all(images.map(img => {
-      const userContent = [
-        {
-          type: 'image_url',
-          image_url: { url: `data:image/jpeg;base64,${img.base64}` },
-        },
-        {
-          type: 'text',
-          text: `Page ${img.page} of ${img.totalPages}. Return JSON only.`,
-        },
-      ];
-      return callOpenRouter([{ role: 'user', content: userContent }], apiKey);
-    }));
+    // 1. Staggered parallel — start each page 1s apart, all run concurrently
+    const pageResults = await Promise.all(images.map((img, index) =>
+      new Promise(resolve => setTimeout(resolve, index * 1000)).then(async () => {
+        const userContent = [
+          {
+            type: 'image_url',
+            image_url: { url: `data:image/jpeg;base64,${img.base64}` },
+          },
+          {
+            type: 'text',
+            text: `Page ${img.page} of ${img.totalPages}. Return JSON only.`,
+          },
+        ];
+        let retries = 3;
+        while (retries > 0) {
+          try {
+            return await callOpenRouter([{ role: 'user', content: userContent }], apiKey);
+          } catch (err) {
+            if (retries > 1) {
+              await new Promise(r => setTimeout(r, 5000));
+              retries--;
+            } else {
+              return { total_questions: 0, issues: [] };
+            }
+          }
+        }
+      })
+    ));
 
     // 2. Collect AI issues (only duplicate_options and spelling)
     const aiIssues = [];
