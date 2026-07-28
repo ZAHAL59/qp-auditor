@@ -100,11 +100,25 @@ ${chunks[c]}`;
       const start = raw.indexOf('{');
       const end = raw.lastIndexOf('}');
       if (start !== -1 && end !== -1) {
-        const result = JSON.parse(raw.substring(start, end + 1));
-        totalQuestions += result.total_questions || 0;
-        (result.issues || []).forEach(issue => {
-          allIssues.push({ ...issue, id: idCounter++ });
-        });
+        try {
+          const result = JSON.parse(raw.substring(start, end + 1));
+          totalQuestions += result.total_questions || 0;
+          (result.issues || []).forEach(issue => {
+            allIssues.push({ ...issue, id: idCounter++ });
+          });
+        } catch (parseErr) {
+          console.log('DEBUG parse error chunk', c, parseErr.message);
+          // Try to extract partial issues array
+          try {
+            const issuesMatch = raw.match(/"issues"\s*:\s*\[([\s\S]*?)\]/);
+            const tqMatch = raw.match(/"total_questions"\s*:\s*(\d+)/);
+            if (tqMatch) totalQuestions += parseInt(tqMatch[1]);
+            if (issuesMatch) {
+              const partial = JSON.parse("[" + issuesMatch[1] + "]");
+              partial.forEach(issue => allIssues.push({ ...issue, id: idCounter++ }));
+            }
+          } catch { /* skip broken chunk */ }
+        }
       }
     } catch (err) {
       console.log('DEBUG chunk error:', c, err.message);
