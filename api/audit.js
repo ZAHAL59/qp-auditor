@@ -49,7 +49,11 @@ Find ONLY these issues:
 
 3. question_ordering: Questions are out of ascending order (e.g. Q9 comes after Q10)
 
-4. duplicate_options: Two or more of the 4 options inside ONE question are 100% character-for-character identical. IMPORTANT: This is PDF-extracted text — mathematical fractions lose structure (numerator/denominator). Options with math expressions like fractions, trigonometry, or formulas that look similar as text may actually be different. Be very conservative — only flag duplicate_options when you are 100% certain they are identical, not just similar-looking math. Example: option (3) says "7860" AND option (4) also says "7860". NOT duplicates: "p" and "-p", "sinθ" and "-sinθ".
+4. duplicate_options: Two or more of the 4 options inside ONE question have EXACTLY the same text/value.
+   RULES:
+   - If options appear empty or contain only labels like "(1) (2) (3) (4)" with no actual text — this means the options are images (diagrams/structures) that cannot be read as text. Do NOT flag these as duplicates — skip them entirely.
+   - Only flag when options have actual text content AND that content is character-for-character identical. Example: option (1) says "240 kΩ" and option (4) also says "240 kΩ" — flag this.
+   - For math/physics expressions with fractions — be conservative, they may look similar but differ in structure. Example: option (3) says "7860" AND option (4) also says "7860". NOT duplicates: "p" and "-p", "sinθ" and "-sinθ".
 
 // spelling check removed — too many false positives with PDF-extracted text
 
