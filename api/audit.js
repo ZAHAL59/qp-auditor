@@ -23,7 +23,7 @@ module.exports = async function handler(req, res) {
 
   console.log('DEBUG content len:', content.length);
 
-  const CHUNK_SIZE = 30000;
+  const CHUNK_SIZE = 15000;
   const chunks = [];
   for (let i = 0; i < content.length; i += CHUNK_SIZE) {
     chunks.push(content.substring(i, i + CHUNK_SIZE));
@@ -84,7 +84,7 @@ ${chunks[c]}`;
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.1, maxOutputTokens: 4096 },
+            generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
           }),
         }
       );
