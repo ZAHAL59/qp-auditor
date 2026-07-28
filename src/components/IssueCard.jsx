@@ -1,20 +1,27 @@
-// src/components/IssueCard.jsx
 import React, { useState } from 'react';
-import { CheckCircle2, XCircle, ChevronDown, ChevronUp, Hash, Copy, ArrowDownUp, Spline } from 'lucide-react';
+import { CheckCircle2, XCircle, ChevronDown, ChevronUp, Hash, Copy, ArrowDownUp, Spline, AlertTriangle } from 'lucide-react';
 
 const CAT_META = {
-  duplicate_question_number: { label: 'Duplicate Q. Number', icon: Hash,       color: '#dc2626', bg: '#fee2e2' },
-  missing_question_number:   { label: 'Missing Q. Number',   icon: Hash,       color: '#dc2626', bg: '#fee2e2' },
-  duplicate_options:         { label: 'Duplicate Options',   icon: Copy,       color: '#d97706', bg: '#fef3c7' },
-  question_ordering:         { label: 'Question Ordering',   icon: ArrowDownUp,color: '#4f6ef7', bg: '#eef1fe' },
-  spelling:                  { label: 'Spelling Mistake',    icon: Spline,     color: '#7c3aed', bg: '#ede9fe' },
+  duplicate_question_number: { label: 'Duplicate Q. Number', icon: Hash, color: '#dc2626', bg: '#fee2e2' },
+  missing_question_number: { label: 'Missing Q. Number', icon: Hash, color: '#dc2626', bg: '#fee2e2' },
+  duplicate_options: { label: 'Duplicate Options', icon: Copy, color: '#d97706', bg: '#fef3c7' },
+  question_ordering: { label: 'Question Ordering', icon: ArrowDownUp, color: '#4f6ef7', bg: '#eef1fe' },
+  spelling: { label: 'Spelling Mistake', icon: Spline, color: '#7c3aed', bg: '#ede9fe' },
 };
 
 const SEV_STYLES = {
-  high:   { label: 'High',   color: '#b91c1c', bg: '#fee2e2' },
+  high: { label: 'High', color: '#b91c1c', bg: '#fee2e2' },
   medium: { label: 'Medium', color: '#b45309', bg: '#fef3c7' },
-  low:    { label: 'Low',    color: '#15803d', bg: '#dcfce7' },
+  low: { label: 'Low', color: '#15803d', bg: '#dcfce7' },
 };
+
+// Math/science keywords that indicate possible fraction/formula issues
+const MATH_KEYWORDS = ['sin', 'cos', 'tan', 'mg', 'log', 'sqrt', 'theta', 'theta', '/', 'frac', 'IL', 'kx', 'mv', 'mg'];
+
+function hasMathContent(text) {
+  if (!text) return false;
+  return MATH_KEYWORDS.some(k => text.toLowerCase().includes(k.toLowerCase()));
+}
 
 export default function IssueCard({ issue, onStateChange }) {
   const [expanded, setExpanded] = useState(true);
@@ -23,6 +30,10 @@ export default function IssueCard({ issue, onStateChange }) {
   const sev = SEV_STYLES[issue.severity] || SEV_STYLES.low;
   const CatIcon = cat.icon;
   const conf = Math.round((issue.confidence || 0) * 100);
+
+  // Show math disclaimer for duplicate_options when math content detected
+  const showMathDisclaimer = issue.category === 'duplicate_options' &&
+    (hasMathContent(issue.original_text) || hasMathContent(issue.description));
 
   return (
     <div style={{
@@ -54,10 +65,20 @@ export default function IssueCard({ issue, onStateChange }) {
               <code style={styles.origText}>{issue.original_text}</code>
             </div>
           )}
+
+          {/* Math disclaimer */}
+          {showMathDisclaimer && (
+            <div style={styles.disclaimer}>
+              <AlertTriangle size={13} color="#d97706" />
+              <span>This question contains math/physics expressions. PDF text extraction may lose fraction structure (e.g. numerator vs denominator), causing false positives. Please verify manually before accepting.</span>
+            </div>
+          )}
+
           <div style={styles.suggestion}>
             <span style={styles.suggLabel}>💡 Fix</span>
             <p style={styles.suggText}>{issue.suggestion}</p>
           </div>
+
           <div style={styles.confRow}>
             <span style={styles.confLabel}>Confidence</span>
             <div style={styles.confTrack}>
@@ -65,6 +86,7 @@ export default function IssueCard({ issue, onStateChange }) {
             </div>
             <span style={styles.confVal}>{conf}%</span>
           </div>
+
           <div style={styles.actionRow}>
             <button
               style={{ ...styles.actionBtn, ...(state === 'accepted' ? styles.acceptedActive : styles.acceptBtn) }}
@@ -94,6 +116,7 @@ const styles = {
   original: { background: '#f7f8fa', borderRadius: 6, padding: '8px 10px', marginBottom: '0.625rem', display: 'flex', gap: 8, alignItems: 'flex-start' },
   origLabel: { fontSize: 11, color: '#9099a8', fontWeight: 500, whiteSpace: 'nowrap', marginTop: 1 },
   origText: { fontSize: 12, color: '#5a6070', fontFamily: 'monospace', lineHeight: 1.5 },
+  disclaimer: { display: 'flex', alignItems: 'flex-start', gap: 7, background: '#fffbeb', border: '0.5px solid #fcd34d', borderRadius: 7, padding: '8px 10px', marginBottom: '0.625rem', fontSize: 12, color: '#92400e', lineHeight: 1.5 },
   suggestion: { background: '#eef1fe', borderLeft: '3px solid #4f6ef7', borderRadius: '0 6px 6px 0', padding: '8px 12px', marginBottom: '0.75rem' },
   suggLabel: { fontSize: 11, fontWeight: 500, color: '#3451d1', display: 'block', marginBottom: 3 },
   suggText: { fontSize: 13, color: '#1a1d23', lineHeight: 1.5 },

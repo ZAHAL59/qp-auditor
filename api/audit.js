@@ -49,15 +49,15 @@ Find ONLY these issues:
 
 3. question_ordering: Questions are out of ascending order (e.g. Q9 comes after Q10)
 
-4. duplicate_options: Two or more of the 4 options inside ONE question are 100% character-for-character identical. Example: option (3) says "7860" AND option (4) also says "7860". NOT duplicates: "p" and "-p", "sinθ" and "-sinθ".
+4. duplicate_options: Two or more of the 4 options inside ONE question are 100% character-for-character identical. IMPORTANT: This is PDF-extracted text — mathematical fractions lose structure (numerator/denominator). Options with math expressions like fractions, trigonometry, or formulas that look similar as text may actually be different. Be very conservative — only flag duplicate_options when you are 100% certain they are identical, not just similar-looking math. Example: option (3) says "7860" AND option (4) also says "7860". NOT duplicates: "p" and "-p", "sinθ" and "-sinθ".
 
-5. spelling: A word in a question is clearly misspelled (wrong letters). Not numbers or formulas.
-   IMPORTANT: This is PDF-extracted text. Some words may appear broken with a space (e.g. 'aqu eous', 'nitro gen') or joined together without space (e.g. 'Aquaregia' instead of 'Aqua regia', 'sodiumchloride' instead of 'sodium chloride'). Do NOT flag these as spelling errors — they are PDF extraction artifacts, not real mistakes. Only flag genuinely misspelled words where the letters themselves are wrong.
+// spelling check removed — too many false positives with PDF-extracted text
 
 Return ONLY valid JSON, no markdown. Keep all strings SHORT (under 60 chars each):
 {"total_questions":<n>,"issues":[{"id":${idCounter},"question_num":"Q5","category":"duplicate_question_number","severity":"high","description":"short","suggestion":"short","confidence":0.9,"original_text":"short"}]}
 
-SEVERITY: high=duplicate/missing/ordering, medium=duplicate_options, low=spelling
+SEVERITY: high=duplicate/missing/ordering, medium=duplicate_options
+Do NOT check spelling at all — ignore any spelling issues completely.
 
 CHUNK ${c + 1} of ${chunks.length}:
 ${chunks[c]}`;

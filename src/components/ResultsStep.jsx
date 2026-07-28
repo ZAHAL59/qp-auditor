@@ -1,16 +1,14 @@
-// src/components/ResultsStep.jsx
 import React, { useState } from 'react';
 import { Download, FileText, RotateCcw, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import IssueCard from './IssueCard';
 import { exportTXT, exportCSV, downloadFile } from '../utils/exportReport';
 
 const CATS = [
-  { key: 'all',                      label: 'All' },
+  { key: 'all', label: 'All' },
   { key: 'duplicate_question_number', label: 'Duplicate Q. No.' },
-  { key: 'missing_question_number',   label: 'Missing Q. No.' },
-  { key: 'duplicate_options',         label: 'Duplicate Options' },
-  { key: 'question_ordering',         label: 'Ordering' },
-  { key: 'spelling',                  label: 'Spelling' },
+  { key: 'missing_question_number', label: 'Missing Q. No.' },
+  { key: 'duplicate_options', label: 'Duplicate Options' },
+  { key: 'question_ordering', label: 'Ordering' },
 ];
 
 export default function ResultsStep({ result, issues, setIssues, onReset }) {
@@ -21,19 +19,23 @@ export default function ResultsStep({ result, issues, setIssues, onReset }) {
   };
 
   const acceptAll = () => setIssues(issues.map(i => ({ ...i, _state: 'accepted' })));
-  const clearAll  = () => setIssues(issues.map(i => ({ ...i, _state: 'pending' })));
+  const clearAll = () => setIssues(issues.map(i => ({ ...i, _state: 'pending' })));
 
   const visible = issues.filter(i => catFilter === 'all' || i.category === catFilter);
-
   const accepted = issues.filter(i => i._state === 'accepted').length;
   const rejected = issues.filter(i => i._state === 'rejected').length;
-  const pending  = issues.filter(i => !i._state || i._state === 'pending').length;
+  const pending = issues.filter(i => !i._state || i._state === 'pending').length;
 
   const score = result.quality_score || 0;
   const scoreColor = score >= 80 ? '#16a34a' : score >= 60 ? '#d97706' : '#dc2626';
-  const scoreBg    = score >= 80 ? '#dcfce7' : score >= 60 ? '#fef3c7' : '#fee2e2';
+  const scoreBg = score >= 80 ? '#dcfce7' : score >= 60 ? '#fef3c7' : '#fee2e2';
 
-  const counts = { duplicate_question_number: 0, missing_question_number: 0, duplicate_options: 0, question_ordering: 0, spelling: 0 };
+  const counts = {
+    duplicate_question_number: 0,
+    missing_question_number: 0,
+    duplicate_options: 0,
+    question_ordering: 0,
+  };
   issues.forEach(i => { if (counts[i.category] !== undefined) counts[i.category]++; });
 
   return (
@@ -48,7 +50,6 @@ export default function ResultsStep({ result, issues, setIssues, onReset }) {
         </button>
       </div>
 
-      {/* Summary */}
       <div style={styles.summaryGrid}>
         <div style={{ ...styles.scoreCard, background: scoreBg }}>
           <div style={{ ...styles.scoreNum, color: scoreColor }}>{score}</div>
@@ -59,16 +60,16 @@ export default function ResultsStep({ result, issues, setIssues, onReset }) {
           <div style={styles.statLbl}>Duplicate Q. No.</div>
         </div>
         <div style={styles.statCard}>
+          <div style={{ ...styles.statNum, color: '#dc2626' }}>{counts.missing_question_number}</div>
+          <div style={styles.statLbl}>Missing Q. No.</div>
+        </div>
+        <div style={styles.statCard}>
           <div style={{ ...styles.statNum, color: '#d97706' }}>{counts.duplicate_options}</div>
           <div style={styles.statLbl}>Duplicate Options</div>
         </div>
         <div style={styles.statCard}>
           <div style={{ ...styles.statNum, color: '#4f6ef7' }}>{counts.question_ordering}</div>
           <div style={styles.statLbl}>Order Issues</div>
-        </div>
-        <div style={styles.statCard}>
-          <div style={{ ...styles.statNum, color: '#7c3aed' }}>{counts.spelling}</div>
-          <div style={styles.statLbl}>Spelling</div>
         </div>
       </div>
 
@@ -78,7 +79,6 @@ export default function ResultsStep({ result, issues, setIssues, onReset }) {
         </div>
       )}
 
-      {/* Review progress */}
       <div style={styles.progressRow}>
         <span style={{ ...styles.pill, background: '#dcfce7', color: '#15803d' }}><CheckCircle2 size={12} /> {accepted} accepted</span>
         <span style={{ ...styles.pill, background: '#fee2e2', color: '#b91c1c' }}><XCircle size={12} /> {rejected} dismissed</span>
@@ -88,7 +88,6 @@ export default function ResultsStep({ result, issues, setIssues, onReset }) {
         <button style={styles.textBtn} onClick={clearAll}>Clear all</button>
       </div>
 
-      {/* Category filters */}
       <div style={styles.filterRow}>
         {CATS.map(c => {
           const count = c.key === 'all' ? issues.length : counts[c.key] || 0;
@@ -103,7 +102,6 @@ export default function ResultsStep({ result, issues, setIssues, onReset }) {
         })}
       </div>
 
-      {/* Issues */}
       <div>
         {visible.length === 0
           ? <div style={styles.empty}><CheckCircle2 size={28} color="#16a34a" /><p style={{ marginTop: 8, color: '#5a6070', fontSize: 14 }}>No issues in this category</p></div>
@@ -111,7 +109,6 @@ export default function ResultsStep({ result, issues, setIssues, onReset }) {
         }
       </div>
 
-      {/* Export */}
       <div style={styles.exportRow}>
         <button style={styles.exportBtn} onClick={() => downloadFile(exportTXT(result, issues), 'audit_report.txt', 'text/plain')}>
           <FileText size={14} /> Export TXT
