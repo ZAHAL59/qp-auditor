@@ -1,4 +1,4 @@
-// api/audit.js — Google Gemini text API (free, high limits)
+// api/audit.js — Google Gemini text API
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
@@ -10,16 +10,14 @@ module.exports = async function handler(req, res) {
   let content = body.content || '';
   if (!content) return res.status(400).json({ error: 'No content provided' });
 
-  // Clean PDF extraction artifacts: merge words broken by spaces (e.g. 'aqu eous' → 'aqueous')
-  // Only merge if both parts are lowercase and short (broken word, not two real words)
+  const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+  if (!GEMINI_API_KEY) return res.status(500).json({ error: 'Server not configured. Set GEMINI_API_KEY.' });
+
+  // Clean PDF artifacts
   content = content.replace(/([a-z]{2,})\s([a-z]{2,})(?=\s)/g, (match, a, b) => {
-    // Only merge if combined length is reasonable word length (<=12)
     if ((a + b).length <= 12) return a + b;
     return match;
   });
-
-  const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-  if (!GEMINI_API_KEY) return res.status(500).json({ error: 'Server not configured. Set GEMINI_API_KEY.' });
 
   console.log('DEBUG content len:', content.length);
 
@@ -34,10 +32,36 @@ module.exports = async function handler(req, res) {
   let totalQuestions = 0;
   let idCounter = 1;
 
+  async function callGemini(prompt) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) await new Promise(r => setTimeout(r, 5000 * attempt));
+      const resp = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.1, maxOutputTokens: 65536 },
+          }),
+        }
+      );
+      if (resp.ok) {
+        const data = await resp.json();
+        return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      }
+      const err = await resp.json().catch(() => ({}));
+      const msg = err.error?.message || `Gemini error ${resp.status}`;
+      if (attempt === 2) throw new Error(msg);
+      console.log(`DEBUG retry ${attempt + 1}:`, msg);
+    }
+    return '';
+  }
+
   for (let c = 0; c < chunks.length; c++) {
     const prompt = `You are auditing an exam question paper.
 
-IMPORTANT: The paper may start with a header and "IMPORTANT INSTRUCTIONS" with numbered points like "1. Use of calculator is prohibited". COMPLETELY IGNORE these — they are NOT questions.
+IMPORTANT: The paper may start with "IMPORTANT INSTRUCTIONS" with numbered points like "1. Use of calculator is prohibited". COMPLETELY IGNORE these — they are NOT questions.
 
 Real exam questions ALWAYS have 4 answer options labeled (1)(2)(3)(4) or (A)(B)(C)(D) below them.
 
@@ -51,41 +75,22 @@ Find ONLY these issues:
 
 4. duplicate_options: Two or more of the 4 options inside ONE question have EXACTLY the same text/value.
    RULES:
-   - If options appear empty or contain only labels like "(1) (2) (3) (4)" with no actual text — this means the options are images (diagrams/structures) that cannot be read as text. Do NOT flag these as duplicates — skip them entirely.
-   - Only flag when options have actual text content AND that content is character-for-character identical. Example: option (1) says "240 kΩ" and option (4) also says "240 kΩ" — flag this.
-   - For math/physics expressions with fractions — be conservative, they may look similar but differ in structure. Example: option (3) says "7860" AND option (4) also says "7860". NOT duplicates: "p" and "-p", "sinθ" and "-sinθ".
+   - If options appear empty or contain only labels like "(1) (2) (3) (4)" with no actual text — options are images that cannot be read. Do NOT flag these — skip them.
+   - Only flag when options have actual text AND that text is character-for-character identical. Example: option (1) says "240 kΩ" and option (4) also says "240 kΩ".
+   - For math/physics fractions — be conservative, they may look similar but differ in structure.
 
-// spelling check removed — too many false positives with PDF-extracted text
+Do NOT check spelling at all.
 
-Return ONLY valid JSON, no markdown. Keep all strings SHORT (under 60 chars each):
+Return ONLY valid JSON, no markdown. Keep all strings SHORT (under 60 chars):
 {"total_questions":<n>,"issues":[{"id":${idCounter},"question_num":"Q5","category":"duplicate_question_number","severity":"high","description":"short","suggestion":"short","confidence":0.9,"original_text":"short"}]}
 
 SEVERITY: high=duplicate/missing/ordering, medium=duplicate_options
-Do NOT check spelling at all — ignore any spelling issues completely.
 
 CHUNK ${c + 1} of ${chunks.length}:
 ${chunks[c]}`;
 
     try {
-      const resp = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.1, maxOutputTokens: 65536 },
-          }),
-        }
-      );
-
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        throw new Error(err.error?.message || `Gemini API error ${resp.status}`);
-      }
-
-      const data = await resp.json();
-      let raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      let raw = await callGemini(prompt);
       raw = raw.replace(/```json|```/g, '').trim();
       const start = raw.indexOf('{');
       const end = raw.lastIndexOf('}');
@@ -98,16 +103,8 @@ ${chunks[c]}`;
           });
         } catch (parseErr) {
           console.log('DEBUG parse error chunk', c, parseErr.message);
-          // Try to extract partial issues array
-          try {
-            const issuesMatch = raw.match(/"issues"\s*:\s*\[([\s\S]*?)\]/);
-            const tqMatch = raw.match(/"total_questions"\s*:\s*(\d+)/);
-            if (tqMatch) totalQuestions += parseInt(tqMatch[1]);
-            if (issuesMatch) {
-              const partial = JSON.parse("[" + issuesMatch[1] + "]");
-              partial.forEach(issue => allIssues.push({ ...issue, id: idCounter++ }));
-            }
-          } catch { /* skip broken chunk */ }
+          const tqMatch = raw.match(/"total_questions"\s*:\s*(\d+)/);
+          if (tqMatch) totalQuestions += parseInt(tqMatch[1]);
         }
       }
     } catch (err) {
@@ -125,8 +122,7 @@ ${chunks[c]}`;
 
   const highCount = dedupedIssues.filter(i => i.severity === 'high').length;
   const medCount = dedupedIssues.filter(i => i.severity === 'medium').length;
-  const lowCount = dedupedIssues.filter(i => i.severity === 'low').length;
-  const quality = Math.max(0, 100 - (highCount * 10) - (medCount * 5) - (lowCount * 2));
+  const quality = Math.max(0, 100 - (highCount * 10) - (medCount * 5));
 
   return res.status(200).json({
     total_questions: totalQuestions,
