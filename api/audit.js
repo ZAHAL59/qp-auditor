@@ -54,24 +54,10 @@ Find ONLY these issues:
 5. spelling: A word in a question is clearly misspelled (wrong letters). Not numbers or formulas.
    IMPORTANT: This is PDF-extracted text. Some words may appear broken with a space (e.g. 'aqu eous', 'nitro gen') or joined together without space (e.g. 'Aquaregia' instead of 'Aqua regia', 'sodiumchloride' instead of 'sodium chloride'). Do NOT flag these as spelling errors — they are PDF extraction artifacts, not real mistakes. Only flag genuinely misspelled words where the letters themselves are wrong.
 
-Return ONLY valid JSON, no markdown:
-{
-  "total_questions": <count of real questions with 4 options in this chunk>,
-  "issues": [
-    {
-      "id": ${idCounter},
-      "question_num": "Q5",
-      "category": "duplicate_question_number | missing_question_number | question_ordering | duplicate_options | spelling",
-      "severity": "high | medium | low",
-      "description": "clear description",
-      "suggestion": "exact fix",
-      "confidence": 0.95,
-      "original_text": "exact text max 80 chars"
-    }
-  ]
-}
+Return ONLY valid JSON, no markdown. Keep all strings SHORT (under 60 chars each):
+{"total_questions":<n>,"issues":[{"id":${idCounter},"question_num":"Q5","category":"duplicate_question_number","severity":"high","description":"short","suggestion":"short","confidence":0.9,"original_text":"short"}]}
 
-SEVERITY: high = duplicate/missing/ordering, medium = duplicate options, low = spelling
+SEVERITY: high=duplicate/missing/ordering, medium=duplicate_options, low=spelling
 
 CHUNK ${c + 1} of ${chunks.length}:
 ${chunks[c]}`;
@@ -84,7 +70,7 @@ ${chunks[c]}`;
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
+            generationConfig: { temperature: 0.1, maxOutputTokens: 65536 },
           }),
         }
       );
