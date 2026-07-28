@@ -7,8 +7,16 @@ module.exports = async function handler(req, res) {
     try { body = JSON.parse(body || '{}'); } catch { body = {}; }
   }
 
-  const content = body.content || '';
+  let content = body.content || '';
   if (!content) return res.status(400).json({ error: 'No content provided' });
+
+  // Clean PDF extraction artifacts: merge words broken by spaces (e.g. 'aqu eous' → 'aqueous')
+  // Only merge if both parts are lowercase and short (broken word, not two real words)
+  content = content.replace(/([a-z]{2,})\s([a-z]{2,})(?=\s)/g, (match, a, b) => {
+    // Only merge if combined length is reasonable word length (<=12)
+    if ((a + b).length <= 12) return a + b;
+    return match;
+  });
 
   const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
   if (!GEMINI_API_KEY) return res.status(500).json({ error: 'Server not configured. Set GEMINI_API_KEY.' });
@@ -44,6 +52,7 @@ Find ONLY these issues:
 4. duplicate_options: Two or more of the 4 options inside ONE question are 100% character-for-character identical. Example: option (3) says "7860" AND option (4) also says "7860". NOT duplicates: "p" and "-p", "sinθ" and "-sinθ".
 
 5. spelling: A word in a question is clearly misspelled (wrong letters). Not numbers or formulas.
+   IMPORTANT: This is PDF-extracted text. Some words may appear broken with a space (e.g. 'aqu eous', 'nitro gen'). Do NOT flag these as spelling errors — they are PDF extraction artifacts, not real mistakes.
 
 Return ONLY valid JSON, no markdown:
 {
