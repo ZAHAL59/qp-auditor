@@ -52,7 +52,7 @@ Find ONLY these issues:
 4. duplicate_options: Two or more of the 4 options inside ONE question are 100% character-for-character identical. Example: option (3) says "7860" AND option (4) also says "7860". NOT duplicates: "p" and "-p", "sinθ" and "-sinθ".
 
 5. spelling: A word in a question is clearly misspelled (wrong letters). Not numbers or formulas.
-   IMPORTANT: This is PDF-extracted text. Some words may appear broken with a space (e.g. 'aqu eous', 'nitro gen'). Do NOT flag these as spelling errors — they are PDF extraction artifacts, not real mistakes.
+   IMPORTANT: This is PDF-extracted text. Some words may appear broken with a space (e.g. 'aqu eous', 'nitro gen') or joined together without space (e.g. 'Aquaregia' instead of 'Aqua regia', 'sodiumchloride' instead of 'sodium chloride'). Do NOT flag these as spelling errors — they are PDF extraction artifacts, not real mistakes. Only flag genuinely misspelled words where the letters themselves are wrong.
 
 Return ONLY valid JSON, no markdown:
 {
